@@ -194,29 +194,9 @@ class FingerlngTracker:
             self._trails[track_id].append((cx, cy))
             current_ids.add(track_id)
 
-            # ---- Counting line crossing detection ----
+            # Virtual counting line removed for enclosed tub monitoring
             crossed_in = False
             crossed_out = False
-
-            side = _point_side(lx1, ly1, lx2, ly2, cx, cy)
-            prev_side = self._last_side.get(track_id)
-
-            if prev_side is not None and prev_side != 0:
-                # Sign change indicates crossing
-                if prev_side > 0 and side <= 0:
-                    # Crossed from left side → right side = "in"
-                    if track_id not in self._counted_in:
-                        self.count_in += 1
-                        self._counted_in.add(track_id)
-                        crossed_in = True
-                elif prev_side < 0 and side >= 0:
-                    # Crossed from right side → left side = "out"
-                    if track_id not in self._counted_out:
-                        self.count_out += 1
-                        self._counted_out.add(track_id)
-                        crossed_out = True
-
-            self._last_side[track_id] = side
 
             detections.append(
                 {

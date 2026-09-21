@@ -120,26 +120,6 @@
       transform: translateY(-1px);
     }
 
-    /* ── Counting line drag overlay ── */
-    #lineOverlay {
-      position: absolute; inset: 0;
-      cursor: crosshair;
-      z-index: 10;
-      user-select: none;
-      -webkit-user-select: none;
-      touch-action: none;
-    }
-    #lineOverlay text {
-      user-select: none;
-      -webkit-user-select: none;
-      pointer-events: none;
-    }
-    body.is-dragging-line, body.is-dragging-line * {
-      user-select: none !important;
-      -webkit-user-select: none !important;
-      cursor: crosshair !important;
-    }
-
     /* ── KPI big number ── */
     .kpi-big { font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 900; line-height: 1; }
 
@@ -258,7 +238,7 @@
 
     <!-- Source dropdown -->
     <div>
-      <select id="sourceSelect" onchange="onSourceDropdownChange()"
+      <select id="sourceSelect" onchange="onSourceDropdownChange()" autocomplete="off"
               class="w-full text-sm rounded-lg px-3 py-2 outline-none font-medium cursor-pointer"
               style="background:var(--bg3); color:var(--text); border:1px solid var(--border);">
         <option value="webcam">Browser Webcam</option>
@@ -272,7 +252,7 @@
     <!-- Contextual sub-options -->
     <!-- Camera device picker (webcam) -->
     <div id="cameraSelectWrapper">
-      <select id="cameraSelect" onchange="onCameraDeviceChanged()"
+      <select id="cameraSelect" onchange="onCameraDeviceChanged()" autocomplete="off"
               class="w-full text-xs rounded px-2 py-1 outline-none font-medium truncate"
               style="background:var(--bg3); color:var(--text); border:1px solid var(--border);">
         <option value="">Default Camera</option>
@@ -341,9 +321,9 @@
     <div>
       <div class="flex justify-between text-xs mb-1">
         <span style="color:var(--muted);">Confidence</span>
-        <span id="confVal" class="font-bold" style="color:var(--accent);">25%</span>
+        <span id="confVal" class="font-bold" style="color:var(--accent);">50%</span>
       </div>
-      <input type="range" id="confSlider" min="1" max="100" value="25" autocomplete="off"
+      <input type="range" id="confSlider" min="1" max="100" value="50" autocomplete="off"
              oninput="onSliderChange('conf', this.value)" class="w-full" />
       <div class="flex justify-between text-xs mt-1" style="color:var(--muted);">
         <button onclick="setConf(1)" class="hover:underline">1%</button>
@@ -355,9 +335,9 @@
     <div>
       <div class="flex justify-between text-xs mb-1">
         <span style="color:var(--muted);">Overlap IoU</span>
-        <span id="iouVal" class="font-bold" style="color:var(--accent);">45%</span>
+        <span id="iouVal" class="font-bold" style="color:var(--accent);">50%</span>
       </div>
-      <input type="range" id="iouSlider" min="10" max="90" value="45" autocomplete="off"
+      <input type="range" id="iouSlider" min="10" max="90" value="50" autocomplete="off"
              oninput="onSliderChange('iou', this.value)" class="w-full" />
     </div>
 
@@ -371,28 +351,6 @@
       </div>
       <input type="range" id="capSlider" min="10" max="500" step="5" value="100" autocomplete="off"
              oninput="onCapacityChange(this.value)" class="w-full" />
-    </div>
-
-    <hr style="border-color:var(--border);" />
-
-    <!-- Counting line -->
-    <div>
-      <p class="text-xs font-bold mb-1" style="color:var(--muted);">Counting Line</p>
-      <p class="text-xs mb-2" style="color:var(--muted);">Click-drag on video to reposition</p>
-      <button onclick="resetLine()" class="w-full text-xs py-1.5 rounded transition-all hover:opacity-80 flex items-center justify-center gap-1.5"
-              style="background:var(--bg3); color:var(--warning);">
-        <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
-        </svg>
-        <span>Reset Line</span>
-      </button>
-      <button onclick="resetCounts()" class="mt-1.5 w-full text-xs py-1.5 rounded transition-all hover:opacity-80 flex items-center justify-center gap-1.5"
-              style="background:var(--bg3); color:var(--danger);">
-        <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
-        </svg>
-        <span>Reset Counts</span>
-      </button>
     </div>
 
   </aside>
@@ -409,14 +367,6 @@
         <canvas id="videoCanvas"></canvas>
         <!-- Image result canvas -->
         <canvas id="uploadCanvas"></canvas>
-        <!-- Transparent drag overlay for counting line -->
-        <svg id="lineOverlay" xmlns="http://www.w3.org/2000/svg">
-          <line id="svgLine" x1="50%" y1="0" x2="50%" y2="100%"
-                stroke="#facc15" stroke-width="2.5" stroke-dasharray="8,4" />
-          <text id="svgLineLabel" x="52%" y="20"
-                fill="#facc15" font-size="12" font-weight="600" font-family="Inter"
-                pointer-events="none" style="user-select:none;-webkit-user-select:none;">Counting Line</text>
-        </svg>
         <!-- Placeholder message -->
         <div id="canvasPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none select-none">
           <div class="w-16 h-16 rounded-2xl flex items-center justify-center mb-3 shadow-inner"
@@ -430,7 +380,7 @@
             </svg>
           </div>
           <p class="text-base font-semibold" style="color:var(--muted);">Select a source and click Start</p>
-          <p class="text-sm mt-1" style="color:var(--muted);">or drag the counting line to position it</p>
+          <p class="text-sm mt-1" style="color:var(--muted);">Live fingerling count & stocking density monitoring</p>
         </div>
       </div>
 
@@ -517,7 +467,7 @@
               </div>
               <div class="flex-none">
                 <label class="text-xs font-medium block mb-1" style="color:var(--muted);">Conf</label>
-                <input id="evalConf" type="number" value="0.25" step="0.05" min="0.05" max="0.95"
+                <input id="evalConf" type="number" value="0.50" step="0.05" min="0.05" max="0.95"
                        class="w-20 text-xs px-2 py-1.5 rounded outline-none"
                        style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
               </div>
@@ -607,12 +557,11 @@
               <thead style="position:sticky; top:0; background:var(--card2); z-index:5;"><tr>
                 <th class="px-3 py-2">ID</th><th class="px-3 py-2">Timestamp</th>
                 <th class="px-3 py-2">Source</th><th class="px-3 py-2">Count</th>
-                <th class="px-3 py-2">In</th><th class="px-3 py-2">Out</th>
                 <th class="px-3 py-2">Density</th><th class="px-3 py-2">Status</th>
                 <th class="px-3 py-2">Confidence</th><th class="px-3 py-2">Model</th>
               </tr></thead>
               <tbody id="recordsBody">
-                <tr><td colspan="10" class="px-3 py-4 text-center text-xs" style="color:var(--muted);">No records yet</td></tr>
+                <tr><td colspan="8" class="px-3 py-4 text-center text-xs" style="color:var(--muted);">No records yet</td></tr>
               </tbody>
             </table>
           </div>
@@ -634,32 +583,6 @@
       <p class="text-xs mt-1" style="color:var(--muted);">Fingerlings in frame</p>
     </div>
 
-    <!-- Count In / Out -->
-    <div class="card2 p-3">
-      <p class="text-xs uppercase font-semibold mb-2" style="color:var(--muted);">Cumulative Flow</p>
-      <div class="flex justify-around">
-        <div class="text-center">
-          <p class="text-xs inline-flex items-center justify-center font-medium" style="color:var(--success);">
-            <span>IN</span>
-            <svg class="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M19 12l-7 7-7-7"/>
-            </svg>
-          </p>
-          <p id="kpiIn" class="text-2xl font-bold" style="color:var(--success);">0</p>
-        </div>
-        <div class="w-px" style="background:var(--border);"></div>
-        <div class="text-center">
-          <p class="text-xs inline-flex items-center justify-center font-medium" style="color:var(--warning);">
-            <span>OUT</span>
-            <svg class="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 19V5M5 12l7-7 7 7"/>
-            </svg>
-          </p>
-          <p id="kpiOut" class="text-2xl font-bold" style="color:var(--warning);">0</p>
-        </div>
-      </div>
-    </div>
-
     <!-- Stocking Density Gauge -->
     <div class="card2 p-3 text-center">
       <p class="text-xs uppercase font-semibold mb-2" style="color:var(--muted);">Stocking Density</p>
@@ -674,9 +597,9 @@
           <path d="M 95.6 32.1 A 44 44 0 0 1 104 58" fill="none" stroke="#f59e0b30" stroke-width="8" stroke-linecap="round" />
           <!-- Active fill arc -->
           <path id="gaugeFill" d="M 16 58 A 44 44 0 0 1 16 58" fill="none" stroke="#22c55e" stroke-width="8" stroke-linecap="round" />
-          <!-- Needle: initially -90deg (pointing to 0% at 9 o'clock) -->
-          <line id="gaugeNeedle" x1="60" y1="58" x2="60" y2="20" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"
-                transform="rotate(-90 60 58)" style="transition:transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s ease;"/>
+          <!-- Needle: initially pointing to 0% at 9 o'clock (x2=22, y2=58) -->
+          <line id="gaugeNeedle" x1="60" y1="58" x2="22" y2="58" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"
+                style="transition:x2 0.35s ease, y2 0.35s ease, stroke 0.3s ease;"/>
           <circle cx="60" cy="58" r="4.5" fill="white" />
           <circle cx="60" cy="58" r="2" fill="var(--card2)" />
           <!-- Labels with text-anchor middle -->
@@ -752,15 +675,11 @@ const S = {
   offscreenCtx:        null,
   captureLoop:         null,
   source:              'webcam',
-  conf:                0.25,
-  iou:                 0.45,
-  capacity:            75,
+  conf:                0.50,
+  iou:                 0.50,
+  capacity:            100,
   peakCount:           0,
   frameIdx:            0,
-  // Counting line (relative coords)
-  line:                { rx1: 0.5, ry1: 0.0, rx2: 0.5, ry2: 1.0 },
-  dragging:            false,
-  dragStart:           null,
   // Charts
   charts:              {},
   // Debounce timers
@@ -787,16 +706,15 @@ const SVG_ICONS = {
 document.addEventListener('DOMContentLoaded', () => {
   applyStoredTheme();
   syncSlidersImmediately();
+  syncSourceImmediately();
   loadConfig();
   loadModels();
   initCameraDevices();
+  loadRecords();
   refreshAnalytics();
   setInterval(refreshAnalytics, 15000);
-  setupLineOverlay();
   initCharts();
-
-  // Source dropdown init
-  updateSourceUI();
+  updateGauge(0, '#22c55e');
 });
 
 // ═══════════════════════════════════════════════════ CAMERA ENUMERATION
@@ -908,21 +826,40 @@ function applyStoredTheme() {
 }
 
 // ═══════════════════════════════════════════════════ UI UPDATE
-function onSourceDropdownChange() {
+function syncSourceImmediately() {
   const sel = document.getElementById('sourceSelect');
-  S.source = sel.value;
+  if (sel && sel.value) {
+    S.source = sel.value;
+  }
+  updateSourceUI();
+}
+
+function onSourceDropdownChange() {
+  if (S.camStream || S.ws) {
+    stopSource();
+  }
+  const sel = document.getElementById('sourceSelect');
+  if (sel && sel.value) {
+    S.source = sel.value;
+  }
   updateSourceUI();
 }
 
 function updateSourceUI() {
-  const src = S.source;
+  const sel = document.getElementById('sourceSelect');
+  if (sel && sel.value) {
+    S.source = sel.value;
+  }
+  const src = S.source || 'webcam';
   const isUpload = (src === 'image' || src === 'video');
-  const isLive   = !isUpload;
 
   // Show/hide context inputs
-  document.getElementById('cameraSelectWrapper').classList.toggle('hidden', src !== 'webcam');
-  document.getElementById('serverCamInput').classList.toggle('hidden', src !== 'server_cam');
-  document.getElementById('rtspInput').classList.toggle('hidden', src !== 'rtsp');
+  const camWrap = document.getElementById('cameraSelectWrapper');
+  const srvCam  = document.getElementById('serverCamInput');
+  const rtspIn  = document.getElementById('rtspInput');
+  if (camWrap) camWrap.classList.toggle('hidden', src !== 'webcam');
+  if (srvCam)  srvCam.classList.toggle('hidden', src !== 'server_cam');
+  if (rtspIn)  rtspIn.classList.toggle('hidden', src !== 'rtsp');
 
   // Show Upload button or Start/Stop
   const startBtn  = document.getElementById('startBtn');
@@ -931,17 +868,15 @@ function updateSourceUI() {
   const lbl       = document.getElementById('uploadBtnLabel');
 
   if (isUpload) {
-    startBtn.classList.add('hidden');
-    stopBtn.classList.add('hidden');
-    uploadBtn.classList.remove('hidden');
+    if (startBtn)  startBtn.classList.add('hidden');
+    if (stopBtn)   stopBtn.classList.add('hidden');
+    if (uploadBtn) uploadBtn.classList.remove('hidden');
     if (lbl) lbl.textContent = src === 'image' ? 'Upload Image' : 'Upload Video';
   } else {
-    uploadBtn.classList.add('hidden');
-    // When switching sources while idle, show Start (not Stop)
-    if (!S.camStream && !S.ws) {
-      startBtn.classList.remove('hidden');
-      stopBtn.classList.add('hidden');
-    }
+    if (uploadBtn) uploadBtn.classList.add('hidden');
+    const isStreaming = Boolean(S.camStream || S.ws);
+    if (startBtn) startBtn.classList.toggle('hidden', isStreaming);
+    if (stopBtn)  stopBtn.classList.toggle('hidden', !isStreaming);
   }
 }
 
@@ -1062,10 +997,7 @@ async function loadConfig() {
       const gaugeCap = document.getElementById('gaugeCapacityText');
       if (gaugeCap) gaugeCap.textContent = `${cfg.tub_capacity} target`;
     }
-    if (cfg.line) {
-      S.line = cfg.line;
-      updateSvgLine(cfg.line.rx1, cfg.line.ry1, cfg.line.rx2, cfg.line.ry2);
-    }
+
     if (cfg.device_name) {
       updateHardwareBadge(cfg.device_name, cfg.is_cuda);
     }
@@ -1130,135 +1062,7 @@ function onCapacityChange(v) {
   }
 }
 
-// ═══════════════════════════════════════════════════ COUNTING LINE
-function setupLineOverlay() {
-  const overlay = document.getElementById('lineOverlay');
-  let startX = 0.5, startY = 0.0;
 
-  function getRelCoords(clientX, clientY) {
-    const rect = overlay.getBoundingClientRect();
-    const rx = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    const ry = Math.max(0, Math.min(1, (clientY - rect.top)  / rect.height));
-    return { rx, ry, rect };
-  }
-
-  function onPointerMove(e) {
-    if (!S.dragging) return;
-    e.preventDefault();
-    const { rx, ry } = getRelCoords(e.clientX, e.clientY);
-    updateSvgLine(startX, startY, rx, ry);
-  }
-
-  function onPointerUp(e) {
-    if (!S.dragging) return;
-    e.preventDefault();
-    const { rx, ry, rect } = getRelCoords(e.clientX, e.clientY);
-    const pxDist = Math.hypot((rx - startX) * rect.width, (ry - startY) * rect.height);
-    if (pxDist >= 20) {
-      S.line = { rx1: startX, ry1: startY, rx2: rx, ry2: ry };
-      sendLineUpdate();
-    } else {
-      // Revert SVG visual to existing line if drag was too short/accidental click
-      updateSvgLine(S.line.rx1, S.line.ry1, S.line.rx2, S.line.ry2);
-    }
-    S.dragging = false;
-    document.body.classList.remove('is-dragging-line');
-    window.removeEventListener('mousemove', onPointerMove);
-    window.removeEventListener('mouseup', onPointerUp);
-  }
-
-  overlay.addEventListener('mousedown', e => {
-    if (e.button !== 0) return; // Only left click
-    e.preventDefault();
-    if (window.getSelection) {
-      window.getSelection().removeAllRanges();
-    }
-    const { rx, ry } = getRelCoords(e.clientX, e.clientY);
-    startX = rx;
-    startY = ry;
-    S.dragging = true;
-    document.body.classList.add('is-dragging-line');
-    window.addEventListener('mousemove', onPointerMove);
-    window.addEventListener('mouseup', onPointerUp);
-  });
-
-  // Touch support
-  function onTouchMove(e) {
-    if (!S.dragging || !e.touches.length) return;
-    e.preventDefault();
-    const t = e.touches[0];
-    const { rx, ry } = getRelCoords(t.clientX, t.clientY);
-    updateSvgLine(startX, startY, rx, ry);
-  }
-
-  function onTouchEnd(e) {
-    if (!S.dragging) return;
-    const t = e.changedTouches[0];
-    const { rx, ry, rect } = getRelCoords(t.clientX, t.clientY);
-    const pxDist = Math.hypot((rx - startX) * rect.width, (ry - startY) * rect.height);
-    if (pxDist >= 20) {
-      S.line = { rx1: startX, ry1: startY, rx2: rx, ry2: ry };
-      sendLineUpdate();
-    } else {
-      updateSvgLine(S.line.rx1, S.line.ry1, S.line.rx2, S.line.ry2);
-    }
-    S.dragging = false;
-    document.body.classList.remove('is-dragging-line');
-    window.removeEventListener('touchmove', onTouchMove);
-    window.removeEventListener('touchend', onTouchEnd);
-  }
-
-  overlay.addEventListener('touchstart', e => {
-    if (!e.touches.length) return;
-    e.preventDefault();
-    const t = e.touches[0];
-    const { rx, ry } = getRelCoords(t.clientX, t.clientY);
-    startX = rx;
-    startY = ry;
-    S.dragging = true;
-    document.body.classList.add('is-dragging-line');
-    window.addEventListener('touchmove', onTouchMove, { passive: false });
-    window.addEventListener('touchend', onTouchEnd);
-  }, { passive: false });
-}
-
-function updateSvgLine(rx1, ry1, rx2, ry2) {
-  const l = document.getElementById('svgLine');
-  const el = document.getElementById('svgLineLabel');
-  if (!l || !el) return;
-  l.setAttribute('x1', `${rx1 * 100}%`);
-  l.setAttribute('y1', `${ry1 * 100}%`);
-  l.setAttribute('x2', `${rx2 * 100}%`);
-  l.setAttribute('y2', `${ry2 * 100}%`);
-  const mx = Math.max(5, Math.min(85, ((rx1 + rx2) / 2) * 100));
-  const my = Math.max(6, Math.min(92, ((ry1 + ry2) / 2) * 100 - 2));
-  el.setAttribute('x', `${mx}%`);
-  el.setAttribute('y', `${my}%`);
-}
-
-function sendLineUpdate() {
-  const msg = { type: 'set_line', ...S.line };
-  if (S.ws?.readyState === WebSocket.OPEN) S.ws.send(JSON.stringify(msg));
-  else fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({line: S.line})});
-}
-
-function resetLine() {
-  S.line = {rx1: 0.5, ry1: 0.0, rx2: 0.5, ry2: 1.0};
-  updateSvgLine(0.5, 0.0, 0.5, 1.0);
-  sendLineUpdate();
-}
-
-function resetCounts() {
-  if (S.ws?.readyState === WebSocket.OPEN) {
-    S.ws.send(JSON.stringify({type:'reset_counts'}));
-  } else {
-    fetch('/api/config/reset-counts', {method:'POST'});
-  }
-  document.getElementById('kpiIn').textContent = '0';
-  document.getElementById('kpiOut').textContent = '0';
-  toast('Counts reset', 'warning');
-}
 
 // ═══════════════════════════════════════════════════ START / STOP
 async function startSource() {
@@ -1496,6 +1300,8 @@ function startImageUpload() {
         frame_idx:   1,
       });
       toast(`Detected ${d.count} fingerling(s) — Confidence: ${(d.avg_conf*100).toFixed(1)}%`, 'success');
+      loadRecords();
+      refreshAnalytics();
     } catch(err) {
       toast('Upload error: ' + err.message, 'error');
     } finally {
@@ -1548,6 +1354,7 @@ function startVideoUpload() {
             document.getElementById('videoProgressBar').classList.add('hidden');
             toast(`Video complete — ${d.total_frames} frames processed`, 'success');
             refreshAnalytics();
+            loadRecords();
             break;
           }
           // Update progress
@@ -1568,9 +1375,10 @@ function startVideoUpload() {
             document.getElementById('canvasPlaceholder').style.display = 'none';
           }
 
+          const densityPct = d.density_pct ?? (d.live_count != null ? ((d.live_count / Math.max(1, S.capacity)) * 100) : 0);
           updateKPIs({
             live_count: d.live_count, count_in: 0, count_out: 0,
-            fps: 0, density_pct: 0, status: d.status,
+            fps: d.fps || 0, density_pct: densityPct, status: d.status,
             avg_conf: d.avg_conf, frame_idx: d.frame_idx,
           });
         }
@@ -1595,7 +1403,6 @@ function openWebSocket(onOpenCb) {
     S.ws.send(JSON.stringify({type:'set_conf', value: S.conf}));
     S.ws.send(JSON.stringify({type:'set_iou',  value: S.iou}));
     S.ws.send(JSON.stringify({type:'set_capacity', value: S.capacity}));
-    S.ws.send(JSON.stringify({type:'set_line', ...S.line}));
     if (onOpenCb) onOpenCb();
   };
 
@@ -1663,16 +1470,14 @@ function updateKPIs(d) {
     document.getElementById('kpiPeak').textContent = S.peakCount;
   }
 
-  document.getElementById('kpiIn').textContent  = d.count_in  ?? 0;
-  document.getElementById('kpiOut').textContent = d.count_out ?? 0;
   document.getElementById('fpsDisplay').textContent = (d.fps ?? 0).toFixed(1) + ' FPS';
   document.getElementById('kpiConf').textContent =
     d.avg_conf > 0 ? (d.avg_conf * 100).toFixed(1) + '%' : '—';
   document.getElementById('kpiFrame').textContent = d.frame_idx ?? 0;
 
   // Density
-  const pct    = d.density_pct ?? 0;
-  const status = d.status ?? 'Optimal';
+  const pct    = d.density_pct ?? (newCount ? (newCount / Math.max(1, S.capacity)) * 100 : 0);
+  const status = d.status ?? (pct > 100 ? 'Overstocked' : pct > 80 ? 'High Density' : 'Optimal');
   document.getElementById('kpiDensityPct').textContent = pct.toFixed(1) + '%';
 
   const badge = document.getElementById('kpiStatusBadge');
@@ -1687,34 +1492,43 @@ function updateKPIs(d) {
   updateGauge(pct, col);
 }
 
-function updateGauge(pct, col) {
-  const capped = Math.min(Math.max(pct, 0), 120);
-  // Map 0% → -90° (9 o'clock), 120% → +90° (3 o'clock)
-  const angleDeg = -90 + (capped / 120) * 180;
+function updateGauge(pct, col = '#22c55e') {
+  const capped = Math.min(Math.max(parseFloat(pct) || 0, 0), 120);
+  const cx = 60, cy = 58, r = 44, needleLen = 38;
+
+  // 0% at 9 o'clock (-180°), 120% at 3 o'clock (0°)
+  const angleRad = (-180 + (capped / 120) * 180) * (Math.PI / 180);
+  const nx2 = (cx + needleLen * Math.cos(angleRad)).toFixed(2);
+  const ny2 = (cy + needleLen * Math.sin(angleRad)).toFixed(2);
 
   const needle = document.getElementById('gaugeNeedle');
   if (needle) {
-    needle.setAttribute('transform', `rotate(${angleDeg} 60 58)`);
+    needle.setAttribute('x1', '60');
+    needle.setAttribute('y1', '58');
+    needle.setAttribute('x2', nx2);
+    needle.setAttribute('y2', ny2);
     needle.setAttribute('stroke', col);
+    needle.removeAttribute('transform');
+    needle.style.transform = 'none';
   }
-
-  const r = 44;
-  const cx = 60, cy = 58;
-  const startAngle = -180;
-  const endAngle   = startAngle + (capped / 120) * 180;
 
   function polarToXY(deg) {
     const a = (deg * Math.PI) / 180;
     return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
   }
 
+  const startAngle = -180;
+  const endAngle   = startAngle + (capped / 120) * 180;
   const [sx, sy] = polarToXY(startAngle);
   const [ex, ey] = polarToXY(endAngle);
   const largeArc = (endAngle - startAngle) > 180 ? 1 : 0;
-  const d = `M ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey}`;
+  const d = capped > 0
+    ? `M ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`
+    : `M 16 58 A 44 44 0 0 1 16 58`;
+
   const fill = document.getElementById('gaugeFill');
   if (fill) {
-    fill.setAttribute('d', capped > 0 ? d : `M ${cx} ${cy} L ${cx} ${cy}`);
+    fill.setAttribute('d', d);
     fill.setAttribute('stroke', col);
   }
 }
@@ -1810,6 +1624,7 @@ async function refreshAnalytics() {
       hc.data.datasets[0].data = hourly.map(r => r.avg_count);
       hc.update('none');
     }
+    loadRecords();
   } catch(e) { console.error('Analytics refresh error:', e); }
 }
 
@@ -1847,7 +1662,7 @@ function renderRecordsTable(data) {
 
   if (!tbody) return;
   if (!data || !data.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="px-3 py-6 text-center text-xs" style="color:var(--muted);">No records found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-xs" style="color:var(--muted);">No records found</td></tr>';
     return;
   }
   tbody.innerHTML = data.map(e => {
@@ -1858,8 +1673,6 @@ function renderRecordsTable(data) {
       <td class="px-3 py-2 text-xs font-mono">${e.timestamp}</td>
       <td class="px-3 py-2 text-xs">${e.source}</td>
       <td class="px-3 py-2 font-semibold">${e.fingerling_count}</td>
-      <td class="px-3 py-2 text-xs font-medium" style="color:#22c55e;">${e.count_in ?? 0}</td>
-      <td class="px-3 py-2 text-xs font-medium" style="color:#f59e0b;">${e.count_out ?? 0}</td>
       <td class="px-3 py-2 text-xs">${parseFloat(e.density_pct ?? 0).toFixed(1)}%</td>
       <td class="px-3 py-2 text-xs font-semibold" style="color:${statusCls};">${e.status_level}</td>
       <td class="px-3 py-2 text-xs">${e.avg_confidence ? (e.avg_confidence * 100).toFixed(1) + '%' : '—'}</td>

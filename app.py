@@ -87,9 +87,9 @@ class AppState:
         self.device_name: str  = DEVICE_NAME
 
         # Global inference parameters
-        self.conf:         float = 0.25
-        self.iou:          float = 0.45
-        self.tub_capacity: int   = 75
+        self.conf:         float = 0.50
+        self.iou:          float = 0.50
+        self.tub_capacity: int   = 100
 
         # Tracker (one per live session)
         self.tracker: FingerlngTracker = FingerlngTracker()
@@ -256,12 +256,6 @@ def _annotate_frame(
     annotated = frame.copy()
     h, w = annotated.shape[:2]
 
-    # --- Counting line ---
-    (lx1, ly1), (lx2, ly2) = tracker.get_line_pixels(w, h)
-    cv2.line(annotated, (lx1, ly1), (lx2, ly2), (0, 255, 255), 2)
-    cv2.putText(annotated, f"IN: {tracker.count_in}  OUT: {tracker.count_out}",
-                (lx1 + 6, ly1 + 20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2, cv2.LINE_AA)
 
     # --- Detections ---
     _PALETTE = _make_palette(128)
