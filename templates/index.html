@@ -1,0 +1,1991 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tilapia Fingerling Counter — Aquaculture Vision Dashboard</title>
+  <meta name="description" content="Real-time aquaculture monitoring dashboard for automated tilapia fingerling counting using YOLOv8, YOLOv9, and YOLOv10." />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      darkMode: ['selector', '[data-theme="dark"]'],
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            brand: {
+              50:  '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe',
+              300: '#93c5fd', 400: '#60a5fa', 500: '#3b82f6',
+              600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a',
+            },
+          },
+          animation: {
+            'pulse-soft': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'count-bump': 'countBump 0.4s ease-out',
+          },
+          keyframes: {
+            countBump: { '0%,100%': { transform: 'scale(1)' }, '50%': { transform: 'scale(1.18)' } },
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* ── Base ── */
+    body { font-family: 'Inter', sans-serif; }
+
+    /* ── Dark / Light CSS tokens ── */
+    :root {
+      --bg:       #0f172a; --bg2:      #1e293b; --bg3:      #334155;
+      --border:   #334155; --text:     #f1f5f9; --muted:    #94a3b8;
+      --accent:   #3b82f6; --success:  #22c55e; --warning:  #f59e0b; --danger:   #ef4444;
+      --card:     #1e293b; --card2:    #0f172a;
+    }
+    [data-theme="light"] {
+      --bg:       #f8fafc; --bg2:      #ffffff; --bg3:      #f1f5f9;
+      --border:   #e2e8f0; --text:     #0f172a; --muted:    #64748b;
+      --card:     #ffffff; --card2:    #f1f5f9;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg2); }
+    ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
+
+    /* ── Video canvas wrapper ── */
+    #canvasWrapper {
+      position: relative;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 16/9;
+      max-height: 40vh;
+      max-width: 100%;
+      margin: 0 auto;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #videoCard {
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #videoCard.video-expanded #canvasWrapper {
+      max-height: calc(100vh - 180px) !important;
+    }
+    #videoCanvas { width: 100%; height: 100%; object-fit: contain; display: block; }
+    #uploadCanvas { width: 100%; height: 100%; object-fit: contain; display: none; }
+
+    /* ── Analytics Panel States (Maximize / Minimize) ── */
+    #analyticsCard {
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    #analyticsCard.analytics-maximized {
+      flex: 1 1 100% !important;
+      height: 100% !important;
+      min-height: 100% !important;
+    }
+    #analyticsCard.analytics-minimized {
+      flex: 0 0 auto !important;
+      min-height: 0 !important;
+      height: auto !important;
+    }
+    .window-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      background: var(--bg3);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .window-btn:hover {
+      color: var(--text);
+      background: var(--card2);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    /* ── Counting line drag overlay ── */
+    #lineOverlay {
+      position: absolute; inset: 0;
+      cursor: crosshair;
+      z-index: 10;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    #lineOverlay text {
+      user-select: none;
+      -webkit-user-select: none;
+      pointer-events: none;
+    }
+    body.is-dragging-line, body.is-dragging-line * {
+      user-select: none !important;
+      -webkit-user-select: none !important;
+      cursor: crosshair !important;
+    }
+
+    /* ── KPI big number ── */
+    .kpi-big { font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 900; line-height: 1; }
+
+    /* ── Status badge ── */
+    .badge-optimal  { background: #16a34a22; color: #22c55e; border: 1px solid #22c55e44; }
+    .badge-high     { background: #d9770622; color: #f59e0b; border: 1px solid #f59e0b44; }
+    .badge-over     { background: #dc262622; color: #ef4444; border: 1px solid #ef444444; }
+
+    /* ── Gauge arc ── */
+    .gauge-svg { transform: rotate(-90deg); }
+    .gauge-track { fill: none; stroke: var(--bg3); stroke-width: 10; }
+    .gauge-fill  { fill: none; stroke-width: 10; stroke-linecap: round;
+                   transition: stroke-dashoffset 0.6s ease, stroke 0.4s ease; }
+
+    /* ── Tab active indicator ── */
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom: 2px solid var(--accent);
+    }
+
+    /* ── Range slider ── */
+    input[type=range] {
+      -webkit-appearance: none; appearance: none;
+      height: 4px; border-radius: 2px;
+      background: var(--bg3); outline: none; cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 16px; height: 16px;
+      border-radius: 50%; background: var(--accent);
+      border: 2px solid white; cursor: pointer;
+      box-shadow: 0 0 0 3px #3b82f618;
+    }
+
+    /* ── Card ── */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+    .card2 { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; }
+
+    /* ── Glowing live indicator ── */
+    @keyframes livePulse { 0%,100% { box-shadow: 0 0 0 0 #22c55e88; } 50% { box-shadow: 0 0 0 6px #22c55e00; } }
+    .live-dot { animation: livePulse 1.8s infinite; }
+
+    /* ── Benchmark table ── */
+    .bench-table th { background: var(--bg3); color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .bench-table td { border-top: 1px solid var(--border); font-size: 0.85rem; }
+    .bench-table tr:hover td { background: var(--bg3); }
+
+    /* ── Smooth number transition ── */
+    .num-animate { transition: color 0.3s ease; }
+
+    /* ── Notification toast ── */
+    #toast { pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease; }
+  </style>
+</head>
+
+<body class="min-h-screen" style="background:var(--bg); color:var(--text);">
+
+<!-- ═══════════════════════════════════════════════════════════════════ HEADER -->
+<header class="card mx-4 mt-4 mb-3 px-5 py-3 flex items-center justify-between" style="border-radius:14px;">
+  <div class="flex items-center gap-3">
+    <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-none shadow-sm"
+         style="background:linear-gradient(135deg, rgba(59,130,246,0.2), rgba(37,99,235,0.1)); border:1px solid rgba(59,130,246,0.3); color:var(--accent);">
+      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6.5 12c.94-3.46 4.94-6 8.5-6 3.56 0 6.06 2.54 7 6-.94 3.46-3.44 6-7 6s-7.56-2.54-8.5-6Z"/>
+        <path d="M18 12v.5"/>
+        <path d="M16 17.93a9.77 9.77 0 0 1 0-11.86"/>
+        <path d="M7 10.67C7 8 5.58 5.97 2.73 4.5 3.5 7.5 3.5 10 2.5 12c1 2 1 4.5.23 7.5C5.58 18.03 7 16 7 13.33"/>
+        <circle cx="17" cy="10" r="1" fill="currentColor"/>
+      </svg>
+    </div>
+    <div>
+      <h1 class="font-bold text-base leading-tight" style="color:var(--text);">Tilapia Fingerling Counter</h1>
+      <p class="text-xs" style="color:var(--muted);">Aquaculture Vision Dashboard · YOLOv8 / v9 / v10</p>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-4">
+    <!-- Live indicator -->
+    <div id="liveIndicator" class="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold"
+         style="background:#16a34a18; color:#22c55e; border:1px solid #22c55e33; display:none;">
+      <span class="live-dot w-2 h-2 rounded-full bg-green-400 inline-block"></span> LIVE
+    </div>
+
+    <!-- Active model badge -->
+    <div id="activeModelBadge" class="text-xs px-3 py-1 rounded-full font-medium"
+         style="background:var(--bg3); color:var(--muted);">No models</div>
+
+    <!-- Hardware / GPU badge -->
+    <div id="deviceBadge" class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium transition-all"
+         style="background:var(--bg3); color:var(--muted); border:1px solid var(--border);" title="Inference Hardware">
+      <span id="deviceDot" class="w-2 h-2 rounded-full bg-slate-400"></span>
+      <span id="deviceText">Checking device...</span>
+    </div>
+
+    <!-- Theme toggle -->
+    <button id="themeToggle" onclick="toggleTheme()"
+      class="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 hover:text-white"
+      style="background:var(--bg3); color:var(--muted);" title="Toggle theme">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+      </svg>
+    </button>
+
+    <!-- FPS -->
+    <span id="fpsDisplay" class="text-xs font-mono font-semibold px-2 py-1 rounded"
+          style="background:var(--bg3); color:var(--accent);">0.0 FPS</span>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════ MAIN LAYOUT (3-col) -->
+<div class="flex gap-3 px-4 pb-4" style="height:calc(100vh - 80px); min-height:600px;">
+
+  <!-- ── LEFT: Controls Panel ── -->
+  <aside class="card flex-none overflow-y-auto" style="width:240px; padding:14px; display:flex; flex-direction:column; gap:10px;">
+
+    <p class="text-xs font-bold uppercase tracking-widest" style="color:var(--muted);">Source</p>
+
+    <!-- Source dropdown -->
+    <div>
+      <select id="sourceSelect" onchange="onSourceDropdownChange()"
+              class="w-full text-sm rounded-lg px-3 py-2 outline-none font-medium cursor-pointer"
+              style="background:var(--bg3); color:var(--text); border:1px solid var(--border);">
+        <option value="webcam">Browser Webcam</option>
+        <option value="server_cam">Local USB / Device Cam</option>
+        <option value="rtsp">RTSP / Stream URL</option>
+        <option value="image">Image Upload</option>
+        <option value="video">Video Upload</option>
+      </select>
+    </div>
+
+    <!-- Contextual sub-options -->
+    <!-- Camera device picker (webcam) -->
+    <div id="cameraSelectWrapper">
+      <select id="cameraSelect" onchange="onCameraDeviceChanged()"
+              class="w-full text-xs rounded px-2 py-1 outline-none font-medium truncate"
+              style="background:var(--bg3); color:var(--text); border:1px solid var(--border);">
+        <option value="">Default Camera</option>
+      </select>
+    </div>
+
+    <!-- USB device index (server_cam) -->
+    <div id="serverCamInput" class="hidden">
+      <div class="flex items-center gap-2 text-xs" style="color:var(--muted);">
+        <span>Device index:</span>
+        <input id="serverCamIndex" type="number" value="0" min="0" max="9"
+               class="w-14 text-xs rounded px-2 py-0.5 outline-none font-bold text-center"
+               style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+        <span class="text-[10px]">(0 = Default)</span>
+      </div>
+    </div>
+
+    <!-- RTSP URL (rtsp) -->
+    <div id="rtspInput" class="hidden">
+      <input id="rtspUrl" type="text" placeholder="rtsp://192.168.x.x/stream" class="w-full text-xs rounded px-2 py-1.5 outline-none"
+             style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+    </div>
+
+    <!-- Action buttons row -->
+    <div id="actionBtns" class="flex gap-2">
+      <!-- Start button (shown when stopped, hidden when streaming) -->
+      <button id="startBtn" onclick="startSource()"
+              class="flex-1 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90 active:scale-95 flex items-center justify-center gap-1.5"
+              style="background:var(--accent); color:white;">
+        <svg class="w-3.5 h-3.5 fill-current flex-none" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+        <span>Start</span>
+      </button>
+      <!-- Stop button (shown when streaming, hidden when stopped) -->
+      <button id="stopBtn" onclick="stopSource()"
+              class="hidden flex-1 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90 active:scale-95 flex items-center justify-center gap-1.5"
+              style="background:#ef444422; color:#ef4444; border:1px solid #ef444433;">
+        <svg class="w-3.5 h-3.5 fill-current flex-none" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>
+        <span>Stop</span>
+      </button>
+      <!-- Upload button (shown only for image/video sources) -->
+      <button id="uploadBtn" onclick="triggerUpload()" class="hidden flex-1 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90 active:scale-95 flex items-center justify-center gap-1.5"
+              style="background:var(--success); color:white;">
+        <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>
+        </svg>
+        <span id="uploadBtnLabel">Upload</span>
+      </button>
+    </div>
+
+    <!-- File input (hidden) -->
+    <input type="file" id="fileInput" class="hidden" />
+
+    <hr style="border-color:var(--border);" />
+
+    <!-- Models -->
+    <p class="text-xs font-bold uppercase tracking-widest" style="color:var(--muted);">Models</p>
+    <div id="modelList" class="flex flex-col gap-1 text-sm">
+      <p class="text-xs italic" style="color:var(--muted);">Loading...</p>
+    </div>
+    <button onclick="applyModelSelection()" class="text-xs py-1 rounded font-medium transition-all hover:opacity-80"
+            style="background:var(--bg3); color:var(--accent);">Apply Selection</button>
+
+    <hr style="border-color:var(--border);" />
+
+    <!-- Confidence -->
+    <div>
+      <div class="flex justify-between text-xs mb-1">
+        <span style="color:var(--muted);">Confidence</span>
+        <span id="confVal" class="font-bold" style="color:var(--accent);">25%</span>
+      </div>
+      <input type="range" id="confSlider" min="1" max="100" value="25" autocomplete="off"
+             oninput="onSliderChange('conf', this.value)" class="w-full" />
+      <div class="flex justify-between text-xs mt-1" style="color:var(--muted);">
+        <button onclick="setConf(1)" class="hover:underline">1%</button>
+        <button onclick="setConf(100)" class="hover:underline">100%</button>
+      </div>
+    </div>
+
+    <!-- IoU -->
+    <div>
+      <div class="flex justify-between text-xs mb-1">
+        <span style="color:var(--muted);">Overlap IoU</span>
+        <span id="iouVal" class="font-bold" style="color:var(--accent);">45%</span>
+      </div>
+      <input type="range" id="iouSlider" min="10" max="90" value="45" autocomplete="off"
+             oninput="onSliderChange('iou', this.value)" class="w-full" />
+    </div>
+
+    <hr style="border-color:var(--border);" />
+
+    <!-- Tub capacity -->
+    <div>
+      <div class="flex justify-between text-xs mb-1">
+        <span style="color:var(--muted);">Tub Capacity</span>
+        <span id="capVal" class="font-bold" style="color:var(--text);">100</span>
+      </div>
+      <input type="range" id="capSlider" min="10" max="500" step="5" value="100" autocomplete="off"
+             oninput="onCapacityChange(this.value)" class="w-full" />
+    </div>
+
+    <hr style="border-color:var(--border);" />
+
+    <!-- Counting line -->
+    <div>
+      <p class="text-xs font-bold mb-1" style="color:var(--muted);">Counting Line</p>
+      <p class="text-xs mb-2" style="color:var(--muted);">Click-drag on video to reposition</p>
+      <button onclick="resetLine()" class="w-full text-xs py-1.5 rounded transition-all hover:opacity-80 flex items-center justify-center gap-1.5"
+              style="background:var(--bg3); color:var(--warning);">
+        <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+        </svg>
+        <span>Reset Line</span>
+      </button>
+      <button onclick="resetCounts()" class="mt-1.5 w-full text-xs py-1.5 rounded transition-all hover:opacity-80 flex items-center justify-center gap-1.5"
+              style="background:var(--bg3); color:var(--danger);">
+        <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+        </svg>
+        <span>Reset Counts</span>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- ── CENTER: Video + Tabs ── -->
+  <main class="flex-1 flex flex-col gap-3 min-w-0">
+
+    <!-- Video Canvas -->
+    <div id="videoCard" class="card flex-none" style="padding:10px;">
+      <div id="canvasWrapper">
+        <!-- Dedicated video element in DOM for continuous webcam decoding -->
+        <video id="webcamVideo" autoplay muted playsinline style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; z-index:-1;"></video>
+        <!-- Live feed canvas -->
+        <canvas id="videoCanvas"></canvas>
+        <!-- Image result canvas -->
+        <canvas id="uploadCanvas"></canvas>
+        <!-- Transparent drag overlay for counting line -->
+        <svg id="lineOverlay" xmlns="http://www.w3.org/2000/svg">
+          <line id="svgLine" x1="50%" y1="0" x2="50%" y2="100%"
+                stroke="#facc15" stroke-width="2.5" stroke-dasharray="8,4" />
+          <text id="svgLineLabel" x="52%" y="20"
+                fill="#facc15" font-size="12" font-weight="600" font-family="Inter"
+                pointer-events="none" style="user-select:none;-webkit-user-select:none;">Counting Line</text>
+        </svg>
+        <!-- Placeholder message -->
+        <div id="canvasPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none select-none">
+          <div class="w-16 h-16 rounded-2xl flex items-center justify-center mb-3 shadow-inner"
+               style="background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.25); color:var(--accent);">
+            <svg class="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6.5 12c.94-3.46 4.94-6 8.5-6 3.56 0 6.06 2.54 7 6-.94 3.46-3.44 6-7 6s-7.56-2.54-8.5-6Z"/>
+              <path d="M18 12v.5"/>
+              <path d="M16 17.93a9.77 9.77 0 0 1 0-11.86"/>
+              <path d="M7 10.67C7 8 5.58 5.97 2.73 4.5 3.5 7.5 3.5 10 2.5 12c1 2 1 4.5.23 7.5C5.58 18.03 7 16 7 13.33"/>
+              <circle cx="17" cy="10" r="1" fill="currentColor"/>
+            </svg>
+          </div>
+          <p class="text-base font-semibold" style="color:var(--muted);">Select a source and click Start</p>
+          <p class="text-sm mt-1" style="color:var(--muted);">or drag the counting line to position it</p>
+        </div>
+      </div>
+
+      <!-- Video progress bar (for video upload) -->
+      <div id="videoProgressBar" class="hidden mt-2">
+        <div class="flex justify-between text-xs mb-1" style="color:var(--muted);">
+          <span id="videoProgressLabel">Processing video...</span>
+          <span id="videoProgressPct">0%</span>
+        </div>
+        <div class="rounded-full overflow-hidden" style="height:4px; background:var(--bg3);">
+          <div id="videoProgressFill" class="h-full rounded-full transition-all" style="background:var(--accent); width:0%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Analytics Tabs ── -->
+    <div id="analyticsCard" class="card flex-1 flex flex-col min-h-0" style="padding:0; overflow:hidden;">
+      <!-- Tab headers -->
+      <div id="analyticsTabBar" class="flex border-b px-4 gap-1 items-center" style="border-color:var(--border);">
+        <button class="tab-btn active text-sm font-medium py-3 px-4 transition-colors" onclick="switchTab('trends')" id="tab-trends">Population Trends</button>
+        <button class="tab-btn text-sm font-medium py-3 px-4 transition-colors" onclick="switchTab('hourly')" id="tab-hourly" style="color:var(--muted);">Hourly Pattern</button>
+        <button class="tab-btn text-sm font-medium py-3 px-4 transition-colors inline-flex items-center gap-1.5" onclick="switchTab('benchmark')" id="tab-benchmark" style="color:var(--muted);">
+          <span>Benchmark</span>
+        </button>
+        <button class="tab-btn text-sm font-medium py-3 px-4 transition-colors" onclick="switchTab('records')" id="tab-records" style="color:var(--muted);">Records</button>
+        <div class="ml-auto flex items-center gap-2 py-2">
+          <button onclick="refreshAnalytics()" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded transition-all hover:opacity-80 font-medium"
+                  style="background:var(--bg3); color:var(--accent);">
+            <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/>
+            </svg>
+            <span>Refresh</span>
+          </button>
+          <a href="/api/analytics/export/csv" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded transition-all hover:opacity-80 font-medium"
+             style="background:var(--bg3); color:var(--success);">
+            <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>
+            </svg>
+            <span>CSV</span>
+          </a>
+          <!-- Maximize / Minimize window controls -->
+          <div class="flex items-center gap-1 border-l pl-2 ml-1" style="border-color:var(--border);">
+            <button id="btnMinimizeAnalytics" onclick="toggleMinimizeAnalytics()" class="window-btn flex items-center justify-center" title="Minimize analytics panel">
+              <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button id="btnMaximizeAnalytics" onclick="toggleMaximizeAnalytics()" class="window-btn flex items-center justify-center" title="Maximize analytics panel">
+              <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab content panels -->
+      <div id="analyticsBody" class="flex-1 overflow-auto p-4" style="min-height:0;">
+
+        <!-- Trends tab -->
+        <div id="panel-trends" class="tab-panel h-full">
+          <canvas id="trendsChart" style="max-height:220px;"></canvas>
+        </div>
+
+        <!-- Hourly tab -->
+        <div id="panel-hourly" class="tab-panel h-full hidden">
+          <canvas id="hourlyChart" style="max-height:220px;"></canvas>
+        </div>
+
+        <!-- Benchmark tab -->
+        <div id="panel-benchmark" class="tab-panel h-full hidden">
+          <div class="flex flex-col gap-3 h-full">
+            <!-- Controls -->
+            <div class="card2 p-3 flex flex-wrap gap-3 items-end">
+              <div class="flex-1 min-w-48">
+                <label class="text-xs font-medium block mb-1" style="color:var(--muted);">Dataset Path</label>
+                <input id="evalDataset" type="text" placeholder="C:/path/to/dataset"
+                       class="w-full text-xs px-2 py-1.5 rounded outline-none"
+                       style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+              </div>
+              <div class="flex-none">
+                <label class="text-xs font-medium block mb-1" style="color:var(--muted);">GT CSV (optional)</label>
+                <input id="evalCsv" type="text" placeholder="counts.csv"
+                       class="w-full text-xs px-2 py-1.5 rounded outline-none"
+                       style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+              </div>
+              <div class="flex-none">
+                <label class="text-xs font-medium block mb-1" style="color:var(--muted);">Conf</label>
+                <input id="evalConf" type="number" value="0.25" step="0.05" min="0.05" max="0.95"
+                       class="w-20 text-xs px-2 py-1.5 rounded outline-none"
+                       style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+              </div>
+              <div class="flex-none">
+                <label class="text-xs font-medium block mb-1" style="color:var(--muted);">IoU Thresh</label>
+                <input id="evalIou" type="number" value="0.5" step="0.05" min="0.1" max="0.9"
+                       class="w-20 text-xs px-2 py-1.5 rounded outline-none"
+                       style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+              </div>
+              <button onclick="runBenchmark()" id="evalBtn"
+                      class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95"
+                      style="background:var(--accent); color:white;">
+                <svg class="w-4 h-4 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10 2v7.31L4.14 20.3a1.5 1.5 0 0 0 1.3 2.2h13.12a1.5 1.5 0 0 0 1.3-2.2L14 9.31V2"/>
+                  <path d="M8.5 2h7"/>
+                  <path d="M7 16h10"/>
+                </svg>
+                <span>Run Evaluation</span>
+              </button>
+              <button onclick="loadLatestResults()"
+                      class="text-sm px-4 py-2 rounded-lg transition-all hover:opacity-80"
+                      style="background:var(--bg3); color:var(--muted);">Load Stored</button>
+            </div>
+
+            <!-- Benchmark charts -->
+            <div class="grid grid-cols-3 gap-3 flex-none">
+              <div class="card2 p-3"><canvas id="benchPrecisionChart" height="160"></canvas></div>
+              <div class="card2 p-3"><canvas id="benchRecallChart" height="160"></canvas></div>
+              <div class="card2 p-3"><canvas id="benchF1Chart" height="160"></canvas></div>
+            </div>
+            <div class="grid grid-cols-2 gap-3 flex-none">
+              <div class="card2 p-3"><canvas id="benchMaeChart" height="120"></canvas></div>
+              <div class="card2 p-3"><canvas id="benchMapeChart" height="120"></canvas></div>
+            </div>
+
+            <!-- Benchmark table -->
+            <div class="card2 overflow-auto flex-none" style="max-height:200px;">
+              <table class="bench-table w-full text-left border-collapse">
+                <thead><tr>
+                  <th class="px-3 py-2">Model</th>
+                  <th class="px-3 py-2">Precision</th>
+                  <th class="px-3 py-2">Recall</th>
+                  <th class="px-3 py-2">F1-score</th>
+                  <th class="px-3 py-2">MAE</th>
+                  <th class="px-3 py-2">MAPE (%)</th>
+                  <th class="px-3 py-2">Images</th>
+                  <th class="px-3 py-2">Inf ms</th>
+                </tr></thead>
+                <tbody id="benchTableBody">
+                  <tr><td colspan="8" class="px-3 py-4 text-center text-xs" style="color:var(--muted);">Run an evaluation to see results</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Records tab -->
+        <div id="panel-records" class="tab-panel h-full flex flex-col hidden" style="height:100%;">
+          <div class="flex flex-wrap items-center justify-between mb-2 gap-2 flex-none">
+            <div class="flex items-center gap-2">
+              <span id="recordsCountBadge" class="text-xs font-semibold px-2.5 py-1 rounded-full"
+                    style="background:var(--bg3); color:var(--accent);">0 records</span>
+              <input id="recordFilterInput" type="text" placeholder="Filter records..."
+                     oninput="filterRecords(this.value)"
+                     class="text-xs px-2.5 py-1 rounded outline-none w-44"
+                     style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="loadRecords()" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded transition-all hover:opacity-80 font-medium"
+                      style="background:var(--bg3); color:var(--accent);">
+                <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/>
+                </svg>
+                <span>Refresh Records</span>
+              </button>
+              <button onclick="clearAllEvents()" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded transition-all hover:opacity-80 font-medium"
+                      style="background:#ef444418; color:#ef4444; border:1px solid #ef444433;">
+                <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>
+                </svg>
+                <span>Clear All</span>
+              </button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-auto rounded-lg border" style="border-color:var(--border); min-height:180px;">
+            <table class="bench-table w-full text-left border-collapse">
+              <thead style="position:sticky; top:0; background:var(--card2); z-index:5;"><tr>
+                <th class="px-3 py-2">ID</th><th class="px-3 py-2">Timestamp</th>
+                <th class="px-3 py-2">Source</th><th class="px-3 py-2">Count</th>
+                <th class="px-3 py-2">In</th><th class="px-3 py-2">Out</th>
+                <th class="px-3 py-2">Density</th><th class="px-3 py-2">Status</th>
+                <th class="px-3 py-2">Confidence</th><th class="px-3 py-2">Model</th>
+              </tr></thead>
+              <tbody id="recordsBody">
+                <tr><td colspan="10" class="px-3 py-4 text-center text-xs" style="color:var(--muted);">No records yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <!-- ── RIGHT: KPI Sidebar ── -->
+  <aside class="card flex-none overflow-y-auto" style="width:220px; padding:14px; display:flex; flex-direction:column; gap:12px;">
+
+    <p class="text-xs font-bold uppercase tracking-widest" style="color:var(--muted);">Live KPIs</p>
+
+    <!-- Live Count -->
+    <div class="card2 p-3 text-center">
+      <p class="text-xs uppercase font-semibold mb-1" style="color:var(--muted);">Live Count</p>
+      <div id="kpiLiveCount" class="kpi-big num-animate" style="color:var(--success);">0</div>
+      <p class="text-xs mt-1" style="color:var(--muted);">Fingerlings in frame</p>
+    </div>
+
+    <!-- Count In / Out -->
+    <div class="card2 p-3">
+      <p class="text-xs uppercase font-semibold mb-2" style="color:var(--muted);">Cumulative Flow</p>
+      <div class="flex justify-around">
+        <div class="text-center">
+          <p class="text-xs inline-flex items-center justify-center font-medium" style="color:var(--success);">
+            <span>IN</span>
+            <svg class="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M19 12l-7 7-7-7"/>
+            </svg>
+          </p>
+          <p id="kpiIn" class="text-2xl font-bold" style="color:var(--success);">0</p>
+        </div>
+        <div class="w-px" style="background:var(--border);"></div>
+        <div class="text-center">
+          <p class="text-xs inline-flex items-center justify-center font-medium" style="color:var(--warning);">
+            <span>OUT</span>
+            <svg class="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+          </p>
+          <p id="kpiOut" class="text-2xl font-bold" style="color:var(--warning);">0</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stocking Density Gauge -->
+    <div class="card2 p-3 text-center">
+      <p class="text-xs uppercase font-semibold mb-2" style="color:var(--muted);">Stocking Density</p>
+      <!-- SVG radial gauge -->
+      <div class="relative w-full px-2">
+        <svg viewBox="0 0 120 74" class="w-full max-w-[170px] mx-auto block" style="overflow:visible;">
+          <!-- Background track (0 to 120% capacity) -->
+          <path d="M 16 58 A 44 44 0 0 1 104 58" fill="none" stroke="var(--bg3)" stroke-width="8" stroke-linecap="round" />
+          <!-- Zone 1: Optimal (0% - 80%) -->
+          <path d="M 16 58 A 44 44 0 0 1 95.6 32.1" fill="none" stroke="#22c55e30" stroke-width="8" />
+          <!-- Zone 2: High (80% - 100%) -->
+          <path d="M 95.6 32.1 A 44 44 0 0 1 104 58" fill="none" stroke="#f59e0b30" stroke-width="8" stroke-linecap="round" />
+          <!-- Active fill arc -->
+          <path id="gaugeFill" d="M 16 58 A 44 44 0 0 1 16 58" fill="none" stroke="#22c55e" stroke-width="8" stroke-linecap="round" />
+          <!-- Needle: initially -90deg (pointing to 0% at 9 o'clock) -->
+          <line id="gaugeNeedle" x1="60" y1="58" x2="60" y2="20" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"
+                transform="rotate(-90 60 58)" style="transition:transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s ease;"/>
+          <circle cx="60" cy="58" r="4.5" fill="white" />
+          <circle cx="60" cy="58" r="2" fill="var(--card2)" />
+          <!-- Labels with text-anchor middle -->
+          <text x="16" y="70" text-anchor="middle" fill="#22c55e" font-size="6.5" font-weight="700" font-family="Inter">0%</text>
+          <text x="96" y="24" text-anchor="middle" fill="#f59e0b" font-size="6.5" font-weight="700" font-family="Inter">80%</text>
+          <text x="104" y="70" text-anchor="middle" fill="#ef4444" font-size="6.5" font-weight="700" font-family="Inter">100%</text>
+        </svg>
+      </div>
+      <div class="mt-1 flex flex-col items-center">
+        <div id="kpiDensityPct" class="text-xl font-black tracking-tight" style="color:var(--success);">0.0%</div>
+        <div id="kpiStatusBadge" class="text-xs font-semibold mt-1 px-2.5 py-0.5 rounded-full inline-block badge-optimal">Optimal</div>
+      </div>
+    </div>
+
+    <!-- Session stats -->
+    <div class="card2 p-3">
+      <p class="text-xs uppercase font-semibold mb-2" style="color:var(--muted);">Session Stats</p>
+      <div class="flex flex-col gap-1.5 text-xs">
+        <div class="flex justify-between">
+          <span style="color:var(--muted);">Peak Count</span>
+          <span id="kpiPeak" class="font-bold">0</span>
+        </div>
+        <div class="flex justify-between">
+          <span style="color:var(--muted);">Avg Confidence</span>
+          <span id="kpiConf" class="font-bold" style="color:var(--accent);">—</span>
+        </div>
+        <div class="flex justify-between">
+          <span style="color:var(--muted);">Frame #</span>
+          <span id="kpiFrame" class="font-bold font-mono">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick summary stats pulled from DB -->
+    <div class="card2 p-3">
+      <p class="text-xs uppercase font-semibold mb-2" style="color:var(--muted);">DB Summary</p>
+      <div class="flex flex-col gap-1 text-xs">
+        <div class="flex justify-between">
+          <span style="color:var(--muted);">Total Events</span>
+          <span id="dbTotal" class="font-bold">—</span>
+        </div>
+        <div class="flex justify-between">
+          <span style="color:var(--muted);">All-time Peak</span>
+          <span id="dbPeak" class="font-bold">—</span>
+        </div>
+        <div class="flex justify-between">
+          <span style="color:var(--muted);">Avg Count</span>
+          <span id="dbAvg" class="font-bold">—</span>
+        </div>
+      </div>
+    </div>
+
+  </aside>
+</div>
+
+<!-- ═══════════════════════════════════ TOAST -->
+<div id="toast" class="fixed bottom-6 right-6 z-50 opacity-0 translate-y-2 pointer-events-none"
+     style="transition:opacity 0.3s, transform 0.3s;">
+  <div id="toastMsg" class="px-4 py-3 rounded-xl text-sm font-medium shadow-xl"
+       style="background:var(--card); border:1px solid var(--border); color:var(--text);">
+    Notification
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ JAVASCRIPT -->
+<script>
+// ═══════════════════════════════════════════════════ STATE
+const S = {
+  ws:                  null,
+  camStream:           null,
+  videoElement:        null,
+  offscreenCanvas:     null,
+  offscreenCtx:        null,
+  captureLoop:         null,
+  source:              'webcam',
+  conf:                0.25,
+  iou:                 0.45,
+  capacity:            75,
+  peakCount:           0,
+  frameIdx:            0,
+  // Counting line (relative coords)
+  line:                { rx1: 0.5, ry1: 0.0, rx2: 0.5, ry2: 1.0 },
+  dragging:            false,
+  dragStart:           null,
+  // Charts
+  charts:              {},
+  // Debounce timers
+  _sliderTimer:        null,
+  // Webcam & Window state
+  isProcessingFrame:   false,
+  analyticsState:      'normal', // 'normal' | 'maximized' | 'minimized'
+  allRecords:          [],
+  onTelemetryReceived: null,
+  previewAnimFrame:    null,
+};
+
+const SVG_ICONS = {
+  minimize: '<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  maximize: '<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
+  restore:  '<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
+  moon:     '<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>',
+  sun:      '<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>',
+  flask:    '<svg class="w-4 h-4 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.31L4.14 20.3a1.5 1.5 0 0 0 1.3 2.2h13.12a1.5 1.5 0 0 0 1.3-2.2L14 9.31V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></svg>',
+  spinner:  '<svg class="w-4 h-4 animate-spin flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>'
+};
+
+// ═══════════════════════════════════════════════════ INIT
+document.addEventListener('DOMContentLoaded', () => {
+  applyStoredTheme();
+  syncSlidersImmediately();
+  loadConfig();
+  loadModels();
+  initCameraDevices();
+  refreshAnalytics();
+  setInterval(refreshAnalytics, 15000);
+  setupLineOverlay();
+  initCharts();
+
+  // Source dropdown init
+  updateSourceUI();
+});
+
+// ═══════════════════════════════════════════════════ CAMERA ENUMERATION
+async function initCameraDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(d => d.kind === 'videoinput');
+    const select = document.getElementById('cameraSelect');
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = '';
+    if (videoDevices.length === 0) {
+      select.innerHTML = '<option value="">Default Camera</option>';
+      return;
+    }
+    videoDevices.forEach((dev, idx) => {
+      const opt = document.createElement('option');
+      opt.value = dev.deviceId;
+      opt.textContent = dev.label || `Camera ${idx + 1}`;
+      if (dev.deviceId === currentVal) opt.selected = true;
+      select.appendChild(opt);
+    });
+  } catch(e) {
+    console.warn('initCameraDevices error:', e);
+  }
+}
+
+async function onCameraDeviceChanged() {
+  if (S.camStream && S.source === 'webcam') {
+    toast('Switching camera device...', 'info');
+    stopSource();
+    await new Promise(r => setTimeout(r, 200));
+    startSource();
+  }
+}
+
+// ═══════════════════════════════════════════════════ ANALYTICS WINDOW CONTROLS
+function setAnalyticsState(state) {
+  S.analyticsState = state;
+  const videoCard = document.getElementById('videoCard');
+  const analyticsCard = document.getElementById('analyticsCard');
+  const analyticsBody = document.getElementById('analyticsBody');
+  const btnMax = document.getElementById('btnMaximizeAnalytics');
+  const btnMin = document.getElementById('btnMinimizeAnalytics');
+
+  if (state === 'maximized') {
+    videoCard.style.display = 'none';
+    analyticsCard.classList.add('analytics-maximized');
+    analyticsCard.classList.remove('analytics-minimized');
+    analyticsBody.style.display = 'block';
+    if (btnMax) { btnMax.innerHTML = SVG_ICONS.restore; btnMax.title = 'Restore normal view'; }
+    if (btnMin) { btnMin.innerHTML = SVG_ICONS.minimize; btnMin.title = 'Minimize analytics panel'; }
+  } else if (state === 'minimized') {
+    videoCard.style.display = 'block';
+    videoCard.classList.add('video-expanded');
+    analyticsCard.classList.remove('analytics-maximized');
+    analyticsCard.classList.add('analytics-minimized');
+    analyticsBody.style.display = 'none';
+    if (btnMax) { btnMax.innerHTML = SVG_ICONS.maximize; btnMax.title = 'Maximize analytics panel'; }
+    if (btnMin) { btnMin.innerHTML = SVG_ICONS.restore; btnMin.title = 'Restore normal view'; }
+  } else {
+    // normal
+    videoCard.style.display = 'block';
+    videoCard.classList.remove('video-expanded');
+    analyticsCard.classList.remove('analytics-maximized');
+    analyticsCard.classList.remove('analytics-minimized');
+    analyticsBody.style.display = 'block';
+    if (btnMax) { btnMax.innerHTML = SVG_ICONS.maximize; btnMax.title = 'Maximize analytics panel'; }
+    if (btnMin) { btnMin.innerHTML = SVG_ICONS.minimize; btnMin.title = 'Minimize analytics panel'; }
+  }
+
+  setTimeout(() => {
+    Object.values(S.charts).forEach(c => c?.resize?.());
+  }, 100);
+}
+
+function toggleMaximizeAnalytics() {
+  if (S.analyticsState === 'maximized') {
+    setAnalyticsState('normal');
+  } else {
+    setAnalyticsState('maximized');
+  }
+}
+
+function toggleMinimizeAnalytics() {
+  if (S.analyticsState === 'minimized') {
+    setAnalyticsState('normal');
+  } else {
+    setAnalyticsState('minimized');
+  }
+}
+
+// ═══════════════════════════════════════════════════ THEME
+function toggleTheme() {
+  const html = document.documentElement;
+  const dark = html.getAttribute('data-theme') === 'dark';
+  const newTheme = dark ? 'light' : 'dark';
+  html.setAttribute('data-theme', newTheme);
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.innerHTML = newTheme === 'dark' ? SVG_ICONS.moon : SVG_ICONS.sun;
+  localStorage.setItem('theme', newTheme);
+}
+function applyStoredTheme() {
+  const t = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', t);
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.innerHTML = t === 'dark' ? SVG_ICONS.moon : SVG_ICONS.sun;
+}
+
+// ═══════════════════════════════════════════════════ UI UPDATE
+function onSourceDropdownChange() {
+  const sel = document.getElementById('sourceSelect');
+  S.source = sel.value;
+  updateSourceUI();
+}
+
+function updateSourceUI() {
+  const src = S.source;
+  const isUpload = (src === 'image' || src === 'video');
+  const isLive   = !isUpload;
+
+  // Show/hide context inputs
+  document.getElementById('cameraSelectWrapper').classList.toggle('hidden', src !== 'webcam');
+  document.getElementById('serverCamInput').classList.toggle('hidden', src !== 'server_cam');
+  document.getElementById('rtspInput').classList.toggle('hidden', src !== 'rtsp');
+
+  // Show Upload button or Start/Stop
+  const startBtn  = document.getElementById('startBtn');
+  const stopBtn   = document.getElementById('stopBtn');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const lbl       = document.getElementById('uploadBtnLabel');
+
+  if (isUpload) {
+    startBtn.classList.add('hidden');
+    stopBtn.classList.add('hidden');
+    uploadBtn.classList.remove('hidden');
+    if (lbl) lbl.textContent = src === 'image' ? 'Upload Image' : 'Upload Video';
+  } else {
+    uploadBtn.classList.add('hidden');
+    // When switching sources while idle, show Start (not Stop)
+    if (!S.camStream && !S.ws) {
+      startBtn.classList.remove('hidden');
+      stopBtn.classList.add('hidden');
+    }
+  }
+}
+
+function setStreamingState(streaming) {
+  const startBtn  = document.getElementById('startBtn');
+  const stopBtn   = document.getElementById('stopBtn');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const isUpload  = (S.source === 'image' || S.source === 'video');
+  if (isUpload) return; // upload sources never show start/stop
+  startBtn.classList.toggle('hidden', streaming);
+  stopBtn.classList.toggle('hidden', !streaming);
+  uploadBtn.classList.add('hidden');
+}
+
+function triggerUpload() {
+  if (S.source === 'image') startImageUpload();
+  else if (S.source === 'video') startVideoUpload();
+}
+
+function toast(msg, type = 'info') {
+  const el  = document.getElementById('toast');
+  const box = document.getElementById('toastMsg');
+  const colors = { info: 'var(--accent)', success: '#22c55e', error: '#ef4444', warning: '#f59e0b' };
+  box.style.borderColor = colors[type] || 'var(--border)';
+  box.textContent = msg;
+  el.style.opacity = '1';
+  el.style.transform = 'translateY(0)';
+  setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(8px)'; }, 3000);
+}
+
+// ═══════════════════════════════════════════════════ MODELS
+async function loadModels() {
+  try {
+    const r   = await fetch('/api/models');
+    const d   = await r.json();
+    const div = document.getElementById('modelList');
+    div.innerHTML = '';
+    if (!d.available.length) {
+      div.innerHTML = '<p class="text-xs italic" style="color:var(--muted);">No .pt files in /models</p>';
+      return;
+    }
+    d.available.forEach(name => {
+      const active = d.active.includes(name);
+      div.innerHTML += `
+        <label class="flex items-center gap-2 text-xs cursor-pointer">
+          <input type="checkbox" class="model-checkbox accent-blue-500" value="${name}" ${active ? 'checked' : ''} />
+          <span class="font-mono truncate" title="${name}">${name}</span>
+        </label>`;
+    });
+    document.getElementById('activeModelBadge').textContent =
+      d.active.length ? d.active.join(', ') : 'No models active';
+    if (d.device_name) {
+      updateHardwareBadge(d.device_name, d.is_cuda);
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function applyModelSelection() {
+  const checked = [...document.querySelectorAll('.model-checkbox:checked')].map(c => c.value);
+  await fetch('/api/models/set-active', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({active: checked}),
+  });
+  document.getElementById('activeModelBadge').textContent = checked.length ? checked.join(', ') : 'No models';
+  toast('Active models updated', 'success');
+}
+
+// ═══════════════════════════════════════════════════ SLIDERS & CONFIG SYNC
+function syncSlidersImmediately() {
+  const confSlider = document.getElementById('confSlider');
+  const confVal = document.getElementById('confVal');
+  if (confSlider && confVal) {
+    confVal.textContent = `${confSlider.value}%`;
+    S.conf = parseFloat(confSlider.value) / 100;
+  }
+  const iouSlider = document.getElementById('iouSlider');
+  const iouVal = document.getElementById('iouVal');
+  if (iouSlider && iouVal) {
+    iouVal.textContent = `${iouSlider.value}%`;
+    S.iou = parseFloat(iouSlider.value) / 100;
+  }
+  const capSlider = document.getElementById('capSlider');
+  const capVal = document.getElementById('capVal');
+  if (capSlider && capVal) {
+    capVal.textContent = capSlider.value;
+    S.capacity = parseInt(capSlider.value);
+  }
+}
+
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) return;
+    const cfg = await res.json();
+    if (cfg.conf !== undefined) {
+      S.conf = cfg.conf;
+      const confPct = Math.round(cfg.conf * 100);
+      const confSlider = document.getElementById('confSlider');
+      if (confSlider) confSlider.value = confPct;
+      const confVal = document.getElementById('confVal');
+      if (confVal) confVal.textContent = `${confPct}%`;
+    }
+    if (cfg.iou !== undefined) {
+      S.iou = cfg.iou;
+      const iouPct = Math.round(cfg.iou * 100);
+      const iouSlider = document.getElementById('iouSlider');
+      if (iouSlider) iouSlider.value = iouPct;
+      const iouVal = document.getElementById('iouVal');
+      if (iouVal) iouVal.textContent = `${iouPct}%`;
+    }
+    if (cfg.tub_capacity !== undefined) {
+      S.capacity = cfg.tub_capacity;
+      const capSlider = document.getElementById('capSlider');
+      if (capSlider) capSlider.value = cfg.tub_capacity;
+      const capVal = document.getElementById('capVal');
+      if (capVal) capVal.textContent = cfg.tub_capacity;
+      const gaugeCap = document.getElementById('gaugeCapacityText');
+      if (gaugeCap) gaugeCap.textContent = `${cfg.tub_capacity} target`;
+    }
+    if (cfg.line) {
+      S.line = cfg.line;
+      updateSvgLine(cfg.line.rx1, cfg.line.ry1, cfg.line.rx2, cfg.line.ry2);
+    }
+    if (cfg.device_name) {
+      updateHardwareBadge(cfg.device_name, cfg.is_cuda);
+    }
+  } catch(e) {
+    console.warn('loadConfig error:', e);
+  }
+}
+
+function updateHardwareBadge(deviceName, isCuda) {
+  const badge = document.getElementById('deviceBadge');
+  const dot = document.getElementById('deviceDot');
+  const text = document.getElementById('deviceText');
+  if (!badge || !text || !dot) return;
+
+  if (isCuda) {
+    dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse';
+    text.textContent = `⚡ ${deviceName || 'GPU (CUDA)'}`;
+    badge.style.color = 'var(--text)';
+    badge.style.borderColor = 'rgba(52, 211, 153, 0.4)';
+    badge.title = `Accelerated on GPU: ${deviceName}`;
+  } else {
+    dot.className = 'w-2 h-2 rounded-full bg-yellow-400';
+    text.textContent = `💻 CPU`;
+    badge.style.color = 'var(--muted)';
+    badge.style.borderColor = 'var(--border)';
+    badge.title = 'Running on CPU (CUDA unavailable)';
+  }
+}
+function onSliderChange(type, val) {
+  clearTimeout(S._sliderTimer);
+  val = parseFloat(val);
+  if (type === 'conf') {
+    S.conf = val / 100;
+    document.getElementById('confVal').textContent = `${val}%`;
+  } else {
+    S.iou = val / 100;
+    document.getElementById('iouVal').textContent = `${val}%`;
+  }
+  S._sliderTimer = setTimeout(() => {
+    if (S.ws?.readyState === WebSocket.OPEN) {
+      S.ws.send(JSON.stringify({ type: type === 'conf' ? 'set_conf' : 'set_iou', value: S[type] }));
+    } else {
+      fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({[type]: S[type]}) });
+    }
+  }, 200);
+}
+
+function setConf(v) {
+  document.getElementById('confSlider').value = v;
+  onSliderChange('conf', v);
+}
+
+function onCapacityChange(v) {
+  S.capacity = parseInt(v);
+  document.getElementById('capVal').textContent = v;
+  if (S.ws?.readyState === WebSocket.OPEN) {
+    S.ws.send(JSON.stringify({ type: 'set_capacity', value: S.capacity }));
+  } else {
+    fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tub_capacity: S.capacity}) });
+  }
+}
+
+// ═══════════════════════════════════════════════════ COUNTING LINE
+function setupLineOverlay() {
+  const overlay = document.getElementById('lineOverlay');
+  let startX = 0.5, startY = 0.0;
+
+  function getRelCoords(clientX, clientY) {
+    const rect = overlay.getBoundingClientRect();
+    const rx = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const ry = Math.max(0, Math.min(1, (clientY - rect.top)  / rect.height));
+    return { rx, ry, rect };
+  }
+
+  function onPointerMove(e) {
+    if (!S.dragging) return;
+    e.preventDefault();
+    const { rx, ry } = getRelCoords(e.clientX, e.clientY);
+    updateSvgLine(startX, startY, rx, ry);
+  }
+
+  function onPointerUp(e) {
+    if (!S.dragging) return;
+    e.preventDefault();
+    const { rx, ry, rect } = getRelCoords(e.clientX, e.clientY);
+    const pxDist = Math.hypot((rx - startX) * rect.width, (ry - startY) * rect.height);
+    if (pxDist >= 20) {
+      S.line = { rx1: startX, ry1: startY, rx2: rx, ry2: ry };
+      sendLineUpdate();
+    } else {
+      // Revert SVG visual to existing line if drag was too short/accidental click
+      updateSvgLine(S.line.rx1, S.line.ry1, S.line.rx2, S.line.ry2);
+    }
+    S.dragging = false;
+    document.body.classList.remove('is-dragging-line');
+    window.removeEventListener('mousemove', onPointerMove);
+    window.removeEventListener('mouseup', onPointerUp);
+  }
+
+  overlay.addEventListener('mousedown', e => {
+    if (e.button !== 0) return; // Only left click
+    e.preventDefault();
+    if (window.getSelection) {
+      window.getSelection().removeAllRanges();
+    }
+    const { rx, ry } = getRelCoords(e.clientX, e.clientY);
+    startX = rx;
+    startY = ry;
+    S.dragging = true;
+    document.body.classList.add('is-dragging-line');
+    window.addEventListener('mousemove', onPointerMove);
+    window.addEventListener('mouseup', onPointerUp);
+  });
+
+  // Touch support
+  function onTouchMove(e) {
+    if (!S.dragging || !e.touches.length) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    const { rx, ry } = getRelCoords(t.clientX, t.clientY);
+    updateSvgLine(startX, startY, rx, ry);
+  }
+
+  function onTouchEnd(e) {
+    if (!S.dragging) return;
+    const t = e.changedTouches[0];
+    const { rx, ry, rect } = getRelCoords(t.clientX, t.clientY);
+    const pxDist = Math.hypot((rx - startX) * rect.width, (ry - startY) * rect.height);
+    if (pxDist >= 20) {
+      S.line = { rx1: startX, ry1: startY, rx2: rx, ry2: ry };
+      sendLineUpdate();
+    } else {
+      updateSvgLine(S.line.rx1, S.line.ry1, S.line.rx2, S.line.ry2);
+    }
+    S.dragging = false;
+    document.body.classList.remove('is-dragging-line');
+    window.removeEventListener('touchmove', onTouchMove);
+    window.removeEventListener('touchend', onTouchEnd);
+  }
+
+  overlay.addEventListener('touchstart', e => {
+    if (!e.touches.length) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    const { rx, ry } = getRelCoords(t.clientX, t.clientY);
+    startX = rx;
+    startY = ry;
+    S.dragging = true;
+    document.body.classList.add('is-dragging-line');
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+  }, { passive: false });
+}
+
+function updateSvgLine(rx1, ry1, rx2, ry2) {
+  const l = document.getElementById('svgLine');
+  const el = document.getElementById('svgLineLabel');
+  if (!l || !el) return;
+  l.setAttribute('x1', `${rx1 * 100}%`);
+  l.setAttribute('y1', `${ry1 * 100}%`);
+  l.setAttribute('x2', `${rx2 * 100}%`);
+  l.setAttribute('y2', `${ry2 * 100}%`);
+  const mx = Math.max(5, Math.min(85, ((rx1 + rx2) / 2) * 100));
+  const my = Math.max(6, Math.min(92, ((ry1 + ry2) / 2) * 100 - 2));
+  el.setAttribute('x', `${mx}%`);
+  el.setAttribute('y', `${my}%`);
+}
+
+function sendLineUpdate() {
+  const msg = { type: 'set_line', ...S.line };
+  if (S.ws?.readyState === WebSocket.OPEN) S.ws.send(JSON.stringify(msg));
+  else fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({line: S.line})});
+}
+
+function resetLine() {
+  S.line = {rx1: 0.5, ry1: 0.0, rx2: 0.5, ry2: 1.0};
+  updateSvgLine(0.5, 0.0, 0.5, 1.0);
+  sendLineUpdate();
+}
+
+function resetCounts() {
+  if (S.ws?.readyState === WebSocket.OPEN) {
+    S.ws.send(JSON.stringify({type:'reset_counts'}));
+  } else {
+    fetch('/api/config/reset-counts', {method:'POST'});
+  }
+  document.getElementById('kpiIn').textContent = '0';
+  document.getElementById('kpiOut').textContent = '0';
+  toast('Counts reset', 'warning');
+}
+
+// ═══════════════════════════════════════════════════ START / STOP
+async function startSource() {
+  const src = S.source;
+  setStreamingState(true);
+
+  if (src === 'webcam')     return startWebcam();
+  if (src === 'server_cam') return startServerCam();
+  if (src === 'rtsp')       return startRtsp();
+}
+
+function stopSource() {
+  if (S.source === 'server_cam' && S.ws?.readyState === WebSocket.OPEN) {
+    S.ws.send(JSON.stringify({ type: 'stop_stream' }));
+  }
+  closeWebSocket();
+  if (S.camStream) {
+    S.camStream.getTracks().forEach(t => t.stop());
+    S.camStream = null;
+  }
+  const webcamVid = document.getElementById('webcamVideo');
+  if (webcamVid) { webcamVid.srcObject = null; }
+  if (S.videoElement && S.videoElement !== webcamVid) {
+    S.videoElement.srcObject = null;
+  }
+  S.videoElement = null;
+  if (S.captureLoop) {
+    clearInterval(S.captureLoop);
+    S.captureLoop = null;
+  }
+  if (S.previewAnimFrame) {
+    cancelAnimationFrame(S.previewAnimFrame);
+    S.previewAnimFrame = null;
+  }
+  S.isProcessingFrame = false;
+  setStreamingState(false);
+  document.getElementById('liveIndicator').style.display = 'none';
+  document.getElementById('canvasPlaceholder').style.display = 'flex';
+  toast('Stopped', 'info');
+}
+
+// ── Browser Webcam ──
+async function startWebcam() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast('Webcam not supported or requires HTTPS / localhost', 'error');
+    setStreamingState(false);
+    return;
+  }
+
+  const select = document.getElementById('cameraSelect');
+  const selectedDeviceId = select?.value?.trim() || null;
+
+  const constraints = {
+    video: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : { width: { ideal: 1280 }, height: { ideal: 720 } }
+  };
+
+  try {
+    S.camStream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (err) {
+    console.warn('Constrained getUserMedia failed, falling back to generic { video: true }', err);
+    try {
+      S.camStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    } catch (fallbackErr) {
+      toast('Camera access denied: ' + (fallbackErr.message || fallbackErr), 'error');
+      setStreamingState(false);
+      return;
+    }
+  }
+
+  // Refresh device dropdown now that permission is granted
+  initCameraDevices();
+
+  const displayCanvas = document.getElementById('videoCanvas');
+  const displayCtx = displayCanvas.getContext('2d');
+  displayCanvas.style.display = 'block';
+  document.getElementById('uploadCanvas').style.display = 'none';
+  document.getElementById('canvasPlaceholder').style.display = 'none';
+  document.getElementById('liveIndicator').style.display = 'flex';
+
+  // Use persistent in-DOM video element so Chromium hardware decoder runs continuously
+  const video = document.getElementById('webcamVideo') || document.createElement('video');
+  video.srcObject = S.camStream;
+  S.videoElement = video;
+
+  try {
+    await video.play();
+  } catch (playErr) {
+    console.warn('video.play() rejected:', playErr);
+  }
+
+  // Wait for video frame to be ready
+  await new Promise((resolve) => {
+    if (video.videoWidth > 0 && video.readyState >= 2) {
+      resolve();
+    } else {
+      const onReady = () => {
+        video.removeEventListener('loadeddata', onReady);
+        video.removeEventListener('canplay', onReady);
+        resolve();
+      };
+      video.addEventListener('loadeddata', onReady);
+      video.addEventListener('canplay', onReady);
+      setTimeout(resolve, 800);
+    }
+  });
+
+  // Dedicated offscreen canvas for frame capture
+  if (!S.offscreenCanvas) {
+    S.offscreenCanvas = document.createElement('canvas');
+    S.offscreenCtx = S.offscreenCanvas.getContext('2d', { willReadFrequently: true });
+  }
+
+  let hasServerFrame = false;
+  S.isProcessingFrame = false;
+  let lastSentTime = 0;
+
+  // Immediate local preview: ensures continuous display on screen
+  function localPreviewLoop() {
+    if (!S.camStream || S.source !== 'webcam') return;
+    if (!hasServerFrame && video && video.videoWidth > 0) {
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (displayCanvas.width !== vw || displayCanvas.height !== vh) {
+        displayCanvas.width = vw;
+        displayCanvas.height = vh;
+      }
+      displayCtx.drawImage(video, 0, 0, vw, vh);
+    }
+    S.previewAnimFrame = requestAnimationFrame(localPreviewLoop);
+  }
+  S.previewAnimFrame = requestAnimationFrame(localPreviewLoop);
+
+  // Connect WebSocket
+  openWebSocket();
+
+  // Send frames to backend for YOLO detection + ByteTrack + DB logging
+  const send = () => {
+    if (!S.camStream || S.source !== 'webcam') return;
+    if (!S.ws || S.ws.readyState !== WebSocket.OPEN) return;
+    if (!video || video.videoWidth === 0) return;
+
+    const now = Date.now();
+    if (S.isProcessingFrame && (now - lastSentTime < 1200)) {
+      return;
+    }
+
+    const vw = video.videoWidth || 640;
+    const vh = video.videoHeight || 480;
+
+    S.offscreenCanvas.width = vw;
+    S.offscreenCanvas.height = vh;
+    S.offscreenCtx.drawImage(video, 0, 0, vw, vh);
+
+    const b64 = S.offscreenCanvas.toDataURL('image/jpeg', 0.68).split(',')[1];
+    if (b64) {
+      S.isProcessingFrame = true;
+      lastSentTime = now;
+      S.ws.send(JSON.stringify({ type: 'frame', data: b64 }));
+    }
+  };
+
+  S.captureLoop = setInterval(send, 80);
+
+  S.onTelemetryReceived = () => {
+    hasServerFrame = true;
+    S.isProcessingFrame = false;
+  };
+}
+
+// ── Server / Local USB Camera ──
+async function startServerCam() {
+  const idx = parseInt(document.getElementById('serverCamIndex').value) || 0;
+  openWebSocket(() => {
+    S.ws.send(JSON.stringify({ type: 'start_stream', source: idx }));
+  });
+  document.getElementById('liveIndicator').style.display = 'flex';
+  document.getElementById('canvasPlaceholder').style.display = 'none';
+  toast(`Connecting to local camera device index ${idx}...`, 'info');
+}
+
+// ── RTSP / Stream URL ──
+async function startRtsp() {
+  const url = document.getElementById('rtspUrl').value.trim();
+  if (!url) { toast('Please enter a stream URL or RTSP link', 'error'); stopSource(); return; }
+  openWebSocket(() => {
+    S.ws.send(JSON.stringify({ type: 'start_stream', source: url }));
+  });
+  document.getElementById('liveIndicator').style.display = 'flex';
+  document.getElementById('canvasPlaceholder').style.display = 'none';
+  toast(`Connecting to stream: ${url}...`, 'info');
+}
+
+// ── Image upload ──
+function startImageUpload() {
+  const input = document.getElementById('fileInput');
+  input.accept = 'image/*';
+  // Reset value so same file can be re-selected
+  input.value = '';
+  input.onchange = async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const uploadBtn = document.getElementById('uploadBtn');
+    if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.style.opacity = '0.6'; }
+    const fd = new FormData();
+    fd.append('file', file);
+    toast('Running inference on image...', 'info');
+    try {
+      const r = await fetch('/api/upload/image', {method:'POST', body: fd});
+      const d = await r.json();
+      if (!r.ok) { toast(d.detail || 'Upload error', 'error'); return; }
+
+      // Show annotated image
+      const canvas = document.getElementById('uploadCanvas');
+      const ctx    = canvas.getContext('2d');
+      const img    = new Image();
+      img.onload = () => {
+        canvas.width  = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        ctx.drawImage(img, 0, 0);
+        canvas.style.display = 'block';
+        document.getElementById('videoCanvas').style.display = 'none';
+        document.getElementById('canvasPlaceholder').style.display = 'none';
+      };
+      img.src = 'data:image/jpeg;base64,' + d.annotated_frame;
+
+      updateKPIs({
+        live_count:  d.count,
+        count_in:    0,
+        count_out:   0,
+        fps:         0,
+        density_pct: d.density_pct,
+        status:      d.status,
+        avg_conf:    d.avg_conf,
+        frame_idx:   1,
+      });
+      toast(`Detected ${d.count} fingerling(s) — Confidence: ${(d.avg_conf*100).toFixed(1)}%`, 'success');
+    } catch(err) {
+      toast('Upload error: ' + err.message, 'error');
+    } finally {
+      if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.style.opacity = '1'; }
+    }
+  };
+  input.click();
+}
+
+// ── Video upload ──
+function startVideoUpload() {
+  const input = document.getElementById('fileInput');
+  input.accept = 'video/*';
+  // Reset value so same file can be re-selected
+  input.value = '';
+  input.onchange = async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const uploadBtn = document.getElementById('uploadBtn');
+    if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.style.opacity = '0.6'; }
+
+    const fd = new FormData();
+    fd.append('file', file);
+    document.getElementById('videoProgressBar').classList.remove('hidden');
+    document.getElementById('canvasPlaceholder').style.display = 'none';
+    toast('Processing video... this may take a while', 'info');
+
+    try {
+      const resp = await fetch('/api/upload/video', {method:'POST', body: fd});
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({detail: 'Unknown error'}));
+        toast(err.detail || 'Upload failed', 'error');
+        return;
+      }
+      const reader = resp.body.getReader();
+      const dec    = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream: true});
+        const lines = buf.split('\n\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const d = JSON.parse(line.slice(6));
+          if (d.done) {
+            document.getElementById('videoProgressBar').classList.add('hidden');
+            toast(`Video complete — ${d.total_frames} frames processed`, 'success');
+            refreshAnalytics();
+            break;
+          }
+          // Update progress
+          document.getElementById('videoProgressPct').textContent = d.progress + '%';
+          document.getElementById('videoProgressFill').style.width = d.progress + '%';
+          document.getElementById('videoProgressLabel').textContent =
+            `Frame ${d.frame_idx}/${d.total} · ${d.live_count} detections`;
+
+          // Show thumbnail
+          if (d.thumb) {
+            const canvas = document.getElementById('uploadCanvas');
+            const ctx    = canvas.getContext('2d');
+            const img    = new Image();
+            img.onload = () => { canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; ctx.drawImage(img, 0, 0); };
+            img.src = 'data:image/jpeg;base64,' + d.thumb;
+            canvas.style.display = 'block';
+            document.getElementById('videoCanvas').style.display = 'none';
+            document.getElementById('canvasPlaceholder').style.display = 'none';
+          }
+
+          updateKPIs({
+            live_count: d.live_count, count_in: 0, count_out: 0,
+            fps: 0, density_pct: 0, status: d.status,
+            avg_conf: d.avg_conf, frame_idx: d.frame_idx,
+          });
+        }
+      }
+    } catch(err) {
+      toast('Video upload error: ' + err.message, 'error');
+    } finally {
+      if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.style.opacity = '1'; }
+      document.getElementById('videoProgressBar').classList.add('hidden');
+    }
+  };
+  input.click();
+}
+
+// ═══════════════════════════════════════════════════ WEBSOCKET
+function openWebSocket(onOpenCb) {
+  if (S.ws) closeWebSocket();
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  S.ws = new WebSocket(`${proto}://${location.host}/ws/live`);
+
+  S.ws.onopen = () => {
+    S.ws.send(JSON.stringify({type:'set_conf', value: S.conf}));
+    S.ws.send(JSON.stringify({type:'set_iou',  value: S.iou}));
+    S.ws.send(JSON.stringify({type:'set_capacity', value: S.capacity}));
+    S.ws.send(JSON.stringify({type:'set_line', ...S.line}));
+    if (onOpenCb) onOpenCb();
+  };
+
+  S.ws.onmessage = e => handleServerMessage(JSON.parse(e.data));
+  S.ws.onerror   = () => {
+    toast('WebSocket error', 'error');
+    S.isProcessingFrame = false;
+  };
+  S.ws.onclose   = () => {
+    document.getElementById('liveIndicator').style.display = 'none';
+    S.isProcessingFrame = false;
+  };
+}
+
+function closeWebSocket() {
+  if (S.ws) { S.ws.close(); S.ws = null; }
+  S.isProcessingFrame = false;
+}
+
+function handleServerMessage(msg) {
+  if (msg.type === 'info')  { toast(msg.message, 'info'); return; }
+  if (msg.type === 'error') {
+    toast(msg.message, 'error');
+    S.isProcessingFrame = false;
+    return;
+  }
+  if (msg.type !== 'telemetry') return;
+
+  if (S.onTelemetryReceived) S.onTelemetryReceived();
+  S.isProcessingFrame = false;
+
+  // Render annotated frame onto canvas
+  if (msg.frame) {
+    const canvas = document.getElementById('videoCanvas');
+    const ctx    = canvas.getContext('2d');
+    const img    = new Image();
+    img.onload = () => {
+      if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+        canvas.width  = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+      }
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = 'data:image/jpeg;base64,' + msg.frame;
+    canvas.style.display = 'block';
+    document.getElementById('uploadCanvas').style.display = 'none';
+    document.getElementById('canvasPlaceholder').style.display = 'none';
+  }
+
+  updateKPIs(msg);
+}
+
+// ═══════════════════════════════════════════════════ KPI UPDATE
+function updateKPIs(d) {
+  const liveCountEl = document.getElementById('kpiLiveCount');
+  const prevCount   = parseInt(liveCountEl.textContent) || 0;
+  const newCount    = d.live_count ?? 0;
+
+  liveCountEl.textContent = newCount;
+  if (newCount > prevCount) liveCountEl.classList.add('animate-pulse');
+  else liveCountEl.classList.remove('animate-pulse');
+
+  if (newCount > S.peakCount) {
+    S.peakCount = newCount;
+    document.getElementById('kpiPeak').textContent = S.peakCount;
+  }
+
+  document.getElementById('kpiIn').textContent  = d.count_in  ?? 0;
+  document.getElementById('kpiOut').textContent = d.count_out ?? 0;
+  document.getElementById('fpsDisplay').textContent = (d.fps ?? 0).toFixed(1) + ' FPS';
+  document.getElementById('kpiConf').textContent =
+    d.avg_conf > 0 ? (d.avg_conf * 100).toFixed(1) + '%' : '—';
+  document.getElementById('kpiFrame').textContent = d.frame_idx ?? 0;
+
+  // Density
+  const pct    = d.density_pct ?? 0;
+  const status = d.status ?? 'Optimal';
+  document.getElementById('kpiDensityPct').textContent = pct.toFixed(1) + '%';
+
+  const badge = document.getElementById('kpiStatusBadge');
+  badge.textContent = status;
+  badge.className = 'text-xs font-semibold mt-1 px-2 py-0.5 rounded-full inline-block ' +
+    (status === 'Optimal' ? 'badge-optimal' : status === 'High Density' ? 'badge-high' : 'badge-over');
+
+  // Gauge colours
+  const col = status === 'Optimal' ? '#22c55e' : status === 'High Density' ? '#f59e0b' : '#ef4444';
+  document.getElementById('kpiDensityPct').style.color = col;
+  document.getElementById('kpiLiveCount').style.color  = col;
+  updateGauge(pct, col);
+}
+
+function updateGauge(pct, col) {
+  const capped = Math.min(Math.max(pct, 0), 120);
+  // Map 0% → -90° (9 o'clock), 120% → +90° (3 o'clock)
+  const angleDeg = -90 + (capped / 120) * 180;
+
+  const needle = document.getElementById('gaugeNeedle');
+  if (needle) {
+    needle.setAttribute('transform', `rotate(${angleDeg} 60 58)`);
+    needle.setAttribute('stroke', col);
+  }
+
+  const r = 44;
+  const cx = 60, cy = 58;
+  const startAngle = -180;
+  const endAngle   = startAngle + (capped / 120) * 180;
+
+  function polarToXY(deg) {
+    const a = (deg * Math.PI) / 180;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  }
+
+  const [sx, sy] = polarToXY(startAngle);
+  const [ex, ey] = polarToXY(endAngle);
+  const largeArc = (endAngle - startAngle) > 180 ? 1 : 0;
+  const d = `M ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey}`;
+  const fill = document.getElementById('gaugeFill');
+  if (fill) {
+    fill.setAttribute('d', capped > 0 ? d : `M ${cx} ${cy} L ${cx} ${cy}`);
+    fill.setAttribute('stroke', col);
+  }
+}
+
+// ═══════════════════════════════════════════════════ CHARTS
+function initCharts() {
+  const fontColor = () => getComputedStyle(document.documentElement)
+    .getPropertyValue('--muted').trim() || '#94a3b8';
+
+  const baseOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: '#94a3b8', font: {size:10} }, grid: { color: '#33415540' } },
+      y: { ticks: { color: '#94a3b8', font: {size:10} }, grid: { color: '#33415540' } },
+    },
+  };
+
+  S.charts.trends = new Chart(document.getElementById('trendsChart'), {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'Avg Count', data: [], borderColor: '#3b82f6', backgroundColor: '#3b82f618',
+        tension: 0.4, fill: true, borderWidth: 2, pointRadius: 2 },
+      { label: 'Peak Count', data: [], borderColor: '#f59e0b', borderDash: [5,3],
+        tension: 0.4, borderWidth: 1.5, pointRadius: 0 },
+    ]},
+    options: { ...baseOpts, maintainAspectRatio: false,
+      plugins: { legend: { display: true, labels: { color: '#94a3b8', font:{size:10} } } } },
+  });
+
+  S.charts.hourly = new Chart(document.getElementById('hourlyChart'), {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'Avg Count', data: [], backgroundColor: '#3b82f666', borderColor: '#3b82f6', borderWidth: 1 },
+    ]},
+    options: { ...baseOpts, maintainAspectRatio: false },
+  });
+
+  // Benchmark charts
+  const benchColors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'];
+  ['Precision', 'Recall', 'F1', 'Mae', 'Mape'].forEach(name => {
+    const id = `bench${name}Chart`;
+    const el = document.getElementById(id);
+    if (!el) return;
+    S.charts[name.toLowerCase()] = new Chart(el, {
+      type: 'bar',
+      data: { labels: [], datasets: [
+        { data: [], backgroundColor: benchColors, borderRadius: 4 },
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false },
+          title: { display: true, text: name, color: '#94a3b8', font:{size:11, weight:'600'} } },
+        scales: {
+          x: { ticks: { color: '#94a3b8', font:{size:9} }, grid: { display: false } },
+          y: { ticks: { color: '#94a3b8', font:{size:9} }, grid: { color: '#33415530' },
+               min: 0, max: name === 'Precision' || name === 'Recall' || name === 'F1' ? 1 : undefined },
+        },
+      },
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════ ANALYTICS REFRESH
+async function refreshAnalytics() {
+  try {
+    const [summary, ts, hourly] = await Promise.all([
+      fetch('/api/analytics/summary').then(r => r.json()),
+      fetch('/api/analytics/timeseries?limit=120').then(r => r.json()),
+      fetch('/api/analytics/hourly').then(r => r.json()),
+    ]);
+
+    // Sidebar DB summary
+    document.getElementById('dbTotal').textContent = summary.total_events ?? '—';
+    document.getElementById('dbPeak').textContent  = summary.peak_count  ?? '—';
+    document.getElementById('dbAvg').textContent   =
+      summary.avg_count != null ? parseFloat(summary.avg_count).toFixed(1) : '—';
+
+    // Trends chart
+    const tc = S.charts.trends;
+    if (tc && ts.length) {
+      tc.data.labels            = ts.map(r => r.slot);
+      tc.data.datasets[0].data  = ts.map(r => r.avg_count);
+      tc.data.datasets[1].data  = ts.map(r => r.max_count);
+      tc.update('none');
+    }
+
+    // Hourly chart
+    const hc = S.charts.hourly;
+    if (hc && hourly.length) {
+      hc.data.labels           = hourly.map(r => r.hour_slot);
+      hc.data.datasets[0].data = hourly.map(r => r.avg_count);
+      hc.update('none');
+    }
+  } catch(e) { console.error('Analytics refresh error:', e); }
+}
+
+// ═══════════════════════════════════════════════════ RECORDS TAB
+async function loadRecords() {
+  try {
+    const data = await fetch('/api/analytics/events?limit=500').then(r => r.json());
+    S.allRecords = data || [];
+    renderRecordsTable(S.allRecords);
+  } catch(e) {
+    console.error('loadRecords error:', e);
+  }
+}
+
+function filterRecords(query) {
+  if (!query) {
+    renderRecordsTable(S.allRecords);
+    return;
+  }
+  const q = query.toLowerCase().trim();
+  const filtered = (S.allRecords || []).filter(e =>
+    String(e.id).includes(q) ||
+    (e.status_level && e.status_level.toLowerCase().includes(q)) ||
+    (e.source && e.source.toLowerCase().includes(q)) ||
+    (e.model_name && e.model_name.toLowerCase().includes(q)) ||
+    (e.timestamp && e.timestamp.toLowerCase().includes(q))
+  );
+  renderRecordsTable(filtered);
+}
+
+function renderRecordsTable(data) {
+  const tbody = document.getElementById('recordsBody');
+  const badge = document.getElementById('recordsCountBadge');
+  if (badge) badge.textContent = `${data ? data.length : 0} record(s)`;
+
+  if (!tbody) return;
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="px-3 py-6 text-center text-xs" style="color:var(--muted);">No records found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(e => {
+    const statusCls = e.status_level === 'Optimal' ? '#22c55e' :
+                      e.status_level === 'High Density' ? '#f59e0b' : '#ef4444';
+    return `<tr>
+      <td class="px-3 py-2 font-mono text-xs">${e.id}</td>
+      <td class="px-3 py-2 text-xs font-mono">${e.timestamp}</td>
+      <td class="px-3 py-2 text-xs">${e.source}</td>
+      <td class="px-3 py-2 font-semibold">${e.fingerling_count}</td>
+      <td class="px-3 py-2 text-xs font-medium" style="color:#22c55e;">${e.count_in ?? 0}</td>
+      <td class="px-3 py-2 text-xs font-medium" style="color:#f59e0b;">${e.count_out ?? 0}</td>
+      <td class="px-3 py-2 text-xs">${parseFloat(e.density_pct ?? 0).toFixed(1)}%</td>
+      <td class="px-3 py-2 text-xs font-semibold" style="color:${statusCls};">${e.status_level}</td>
+      <td class="px-3 py-2 text-xs">${e.avg_confidence ? (e.avg_confidence * 100).toFixed(1) + '%' : '—'}</td>
+      <td class="px-3 py-2 text-xs font-mono truncate" style="max-width:120px;" title="${e.model_name}">${e.model_name || '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function clearAllEvents() {
+  if (!confirm('Delete all detection records from the database? This cannot be undone.')) return;
+  await fetch('/api/analytics/events', {method:'DELETE'});
+  await loadRecords();
+  await refreshAnalytics();
+  toast('All records cleared', 'warning');
+}
+
+// ═══════════════════════════════════════════════════ TABS
+function switchTab(name) {
+  // If currently minimized, automatically restore so the user can see the tab content
+  if (S.analyticsState === 'minimized') {
+    setAnalyticsState('normal');
+  }
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.add('hidden');
+    p.classList.remove('flex');
+  });
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.remove('active');
+    b.style.color = 'var(--muted)';
+  });
+  const activePanel = document.getElementById(`panel-${name}`);
+  if (activePanel) {
+    activePanel.classList.remove('hidden');
+    if (name === 'records' || name === 'benchmark') {
+      activePanel.classList.add('flex');
+    }
+  }
+  const btn = document.getElementById(`tab-${name}`);
+  if (btn) {
+    btn.classList.add('active');
+    btn.style.color = 'var(--accent)';
+  }
+
+  if (name === 'records') loadRecords();
+  if (name === 'benchmark') loadLatestResults();
+
+  setTimeout(() => {
+    Object.values(S.charts).forEach(c => c?.resize?.());
+  }, 50);
+}
+
+// ═══════════════════════════════════════════════════ BENCHMARK
+async function runBenchmark() {
+  const dataset  = document.getElementById('evalDataset').value.trim();
+  const gt_csv   = document.getElementById('evalCsv').value.trim() || null;
+  const conf     = parseFloat(document.getElementById('evalConf').value);
+  const iou      = parseFloat(document.getElementById('evalIou').value);
+  const models   = [...document.querySelectorAll('.model-checkbox:checked')].map(c => c.value);
+
+  if (!dataset && !gt_csv) { toast('Enter a dataset path or GT CSV path', 'error'); return; }
+  if (!models.length) { toast('Select at least one model', 'error'); return; }
+
+  const btn = document.getElementById('evalBtn');
+  btn.disabled = true;
+  btn.innerHTML = `${SVG_ICONS.spinner} <span>Running...</span>`;
+  toast('Benchmark running — this may take several minutes', 'info');
+
+  try {
+    const r = await fetch('/api/evaluate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({dataset_path: dataset, model_names: models, conf, iou_thresh: iou, gt_csv}),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.detail || 'Benchmark error', 'error'); return; }
+    renderBenchmarkResults(d.results);
+    toast(`Benchmark complete — ${d.results.length} model(s) evaluated`, 'success');
+  } catch(e) { toast('Benchmark error: ' + e.message, 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = `${SVG_ICONS.flask} <span>Run Evaluation</span>`;
+  }
+}
+
+async function loadLatestResults() {
+  try {
+    const r = await fetch('/api/evaluate/latest');
+    const d = await r.json();
+    if (d.length) renderBenchmarkResults(d);
+  } catch(e) {}
+}
+
+function renderBenchmarkResults(results) {
+  if (!results?.length) return;
+  const labels = results.map(r => r.model_name);
+  const colors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+  const updateChart = (name, key) => {
+    const c = S.charts[name];
+    if (!c) return;
+    c.data.labels = labels;
+    c.data.datasets[0].data = results.map(r => r[key] != null ? parseFloat(r[key]) : 0);
+    c.data.datasets[0].backgroundColor = colors.slice(0, labels.length);
+    c.update();
+  };
+
+  updateChart('precision', 'precision');
+  updateChart('recall', 'recall');
+  updateChart('f1', 'f1');
+  updateChart('mae', 'mae');
+  updateChart('mape', 'mape');
+
+  // Table
+  const tbody = document.getElementById('benchTableBody');
+  tbody.innerHTML = results.map((r, i) => `
+    <tr>
+      <td class="px-3 py-2 font-semibold font-mono" style="color:${colors[i % colors.length]};">${r.model_name}</td>
+      <td class="px-3 py-2">${r.precision != null ? (r.precision * 100).toFixed(2) + '%' : '—'}</td>
+      <td class="px-3 py-2">${r.recall    != null ? (r.recall    * 100).toFixed(2) + '%' : '—'}</td>
+      <td class="px-3 py-2 font-bold">${r.f1 != null ? (r.f1 * 100).toFixed(2) + '%' : '—'}</td>
+      <td class="px-3 py-2">${r.mae  != null ? parseFloat(r.mae).toFixed(3)  : '—'}</td>
+      <td class="px-3 py-2">${r.mape != null ? parseFloat(r.mape).toFixed(2) + '%' : '—'}</td>
+      <td class="px-3 py-2">${r.total_images ?? '—'}</td>
+      <td class="px-3 py-2">${r.avg_inference_ms != null ? r.avg_inference_ms + ' ms' : '—'}</td>
+    </tr>`).join('');
+}
+</script>
+</body>
+</html>

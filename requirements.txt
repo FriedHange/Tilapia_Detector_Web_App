@@ -1,0 +1,42 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# requirements.txt — Tilapia Fingerling Counter Web Application
+# ──────────────────────────────────────────────────────────────────────────────
+# Install with: pip install -r requirements.txt
+# Python 3.10+ required.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Web framework & ASGI server
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# WebSocket / streaming support
+websockets>=12.0
+
+# File upload handling
+python-multipart>=0.0.9
+
+# Async file I/O (for DB + file serving)
+aiofiles>=23.0.0
+
+# Template engine (built into FastAPI)
+jinja2>=3.1.0
+
+# ── Computer Vision ──────────────────────────────────────────────────────────
+# Ultralytics YOLO (includes YOLOv8, YOLOv9, YOLOv10 support)
+ultralytics>=8.4.0
+
+# OpenCV (headless: no GUI dependency — safe for server use)
+opencv-python-headless>=4.8.0
+
+# Numerical computing
+numpy>=1.24.0
+
+# Image I/O fallback
+Pillow>=10.0.0
+
+# ── Database ─────────────────────────────────────────────────────────────────
+# Async SQLite (aiosqlite wraps sqlite3 with asyncio-compatible API)
+aiosqlite>=0.20.0
+
+# ── Data / Export ────────────────────────────────────────────────────────────
+pandas>=2.0.0

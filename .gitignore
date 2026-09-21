@@ -1,0 +1,50 @@
+# =====================================================================
+# .gitignore — Tilapia Fingerling Counter Web Application
+# =====================================================================
+
+# Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+
+# User Uploads & Processed Media (keep directory via .gitignore)
+uploads/*
+!uploads/.gitignore
+!uploads/.gitkeep
+
+# Local SQLite Databases & Telemetry Logs
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+tilapia_web_analytics.db
+
+# IDE & Editor Files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Logs
+*.log
+runs/
