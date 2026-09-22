@@ -213,17 +213,6 @@
       <span id="deviceText">Checking device...</span>
     </div>
 
-    <!-- Academic Evaluation Modal Trigger -->
-    <button onclick="openEvalModal()" class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold transition-all hover:opacity-90 active:scale-95 shadow-sm"
-            style="background:linear-gradient(135deg, rgba(59,130,246,0.2), rgba(99,102,241,0.2)); border:1px solid rgba(99,102,241,0.35); color:#a5b4fc;"
-            title="Open Academic Evaluation & Benchmark Mode">
-      <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
-        <path d="M6 12v5c3 3 9 3 12 0v-5"/>
-      </svg>
-      <span>Academic Evaluation</span>
-    </button>
-
     <!-- Theme toggle -->
     <button id="themeToggle" onclick="toggleTheme()"
       class="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 hover:text-white"
@@ -319,12 +308,13 @@
     <hr style="border-color:var(--border);" />
 
     <!-- Models -->
-    <p class="text-xs font-bold uppercase tracking-widest" style="color:var(--muted);">Models</p>
+    <div class="flex items-center justify-between">
+      <p class="text-xs font-bold uppercase tracking-widest" style="color:var(--muted);">Models</p>
+      <span class="text-[9px] font-mono px-1.5 py-0.5 rounded text-emerald-400 font-semibold" style="background:#22c55e18; border:1px solid #22c55e33;">Auto-apply</span>
+    </div>
     <div id="modelList" class="flex flex-col gap-1 text-sm">
       <p class="text-xs italic" style="color:var(--muted);">Loading...</p>
     </div>
-    <button onclick="applyModelSelection()" class="text-xs py-1 rounded font-medium transition-all hover:opacity-80"
-            style="background:var(--bg3); color:var(--accent);">Apply Selection</button>
 
     <hr style="border-color:var(--border);" />
 
@@ -485,203 +475,220 @@
       </div>
 
       <!-- Tab content panels -->
-      <div id="analyticsBody" class="flex-1 flex flex-col overflow-auto p-4 min-h-0" style="min-height:0; height:100%;">
+      <div id="analyticsBody" class="flex-1 flex flex-col overflow-hidden p-3 sm:p-4 min-h-0" style="min-height:0; height:100%;">
 
         <!-- Trends tab -->
-        <div id="panel-trends" class="tab-panel flex-1 min-h-0">
-          <canvas id="trendsChart" style="max-height:220px;"></canvas>
+        <div id="panel-trends" class="tab-panel flex-1 min-h-0 w-full h-full flex flex-col gap-2">
+          <div class="flex flex-wrap items-center justify-between text-xs flex-none px-1">
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-slate-200">Population Trends</span>
+              <span class="text-[10.5px]" style="color:var(--muted);">Live telemetry over time</span>
+            </div>
+            <div class="flex items-center gap-3 text-[11px] font-mono" style="color:var(--muted);">
+              <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 rounded-full inline-block" style="background:#3b82f6;"></span> Average Count</span>
+              <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 border-t-2 border-dashed inline-block" style="border-color:#f59e0b;"></span> Peak Count</span>
+            </div>
+          </div>
+          <div class="relative w-full flex-1 min-h-[160px] h-full">
+            <canvas id="trendsChart" class="w-full h-full"></canvas>
+          </div>
         </div>
 
         <!-- Hourly tab -->
-        <div id="panel-hourly" class="tab-panel h-full hidden">
-          <canvas id="hourlyChart" style="max-height:220px;"></canvas>
+        <div id="panel-hourly" class="tab-panel flex-1 min-h-0 w-full h-full flex flex-col gap-2 hidden">
+          <div class="flex flex-wrap items-center justify-between text-xs flex-none px-1">
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-slate-200">Hourly Activity Distribution</span>
+              <span class="text-[10.5px]" style="color:var(--muted);">24-hour aggregate fingerling count pattern</span>
+            </div>
+            <span class="text-[11px] font-mono font-semibold" style="color:var(--accent);">Average Count / Hour</span>
+          </div>
+          <div class="relative w-full flex-1 min-h-[160px] h-full">
+            <canvas id="hourlyChart" class="w-full h-full"></canvas>
+          </div>
         </div>
 
         <!-- Benchmark tab -->
-        <div id="panel-benchmark" class="tab-panel h-full hidden">
-          <div class="flex flex-col gap-3 h-full">
-            <!-- Controls & Quick Actions -->
-            <div class="card2 p-3 flex flex-wrap gap-3 items-center justify-between">
-              <!-- Action buttons -->
-              <div class="flex flex-wrap items-center gap-2">
-                <button onclick="runBenchmarkFromRecords()" id="evalRecordsBtn"
-                        class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold px-4 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95 shadow"
-                        style="background:var(--accent); color:white;" title="Benchmark all active models across saved detections">
-                  <svg class="w-4 h-4 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-                  </svg>
-                  <span>Benchmark From Saved Records</span>
-                </button>
-
-                <input type="file" id="datasetZipInput" accept=".zip" class="hidden" onchange="uploadDatasetZip(this.files[0])" />
-                <button onclick="document.getElementById('datasetZipInput').click()" id="uploadZipBtn"
-                        class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-80"
-                        style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" title="Upload a .zip containing images/ and labels/">
-                  <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>
-                  </svg>
-                  <span>Upload Dataset (.zip)</span>
-                </button>
-
-                <button onclick="openEvalModal()" class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95 shadow"
-                        style="background:linear-gradient(135deg, #2563eb, #4f46e5); color:white;" title="Run academic evaluation on single image / batch with confusion matrix">
-                  <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
-                    <path d="M6 12v5c3 3 9 3 12 0v-5"/>
-                  </svg>
-                  <span>Academic Sample Benchmark</span>
-                </button>
-
-                <button onclick="toggleCustomPathSection()" class="text-xs px-2.5 py-2 rounded-lg transition-all"
-                        style="background:var(--bg3); color:var(--muted); border:1px solid var(--border);" title="Enter custom directory path on server">
-                  Manual Path ▾
-                </button>
-
-                <button onclick="loadLatestResults()" class="text-xs px-3 py-2 rounded-lg transition-all hover:opacity-80"
-                        style="background:var(--bg3); color:var(--muted);">Load Stored</button>
-              </div>
-
-              <!-- Confidence & IoU filters -->
-              <div class="flex items-center gap-2">
-                <div>
-                  <label class="text-[10px] uppercase font-bold block" style="color:var(--muted);">Conf</label>
-                  <input id="evalConf" type="number" value="0.50" step="0.05" min="0.05" max="0.95"
-                         class="w-16 text-xs px-2 py-1 rounded outline-none"
-                         style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
-                </div>
-                <div>
-                  <label class="text-[10px] uppercase font-bold block" style="color:var(--muted);">IoU</label>
-                  <input id="evalIou" type="number" value="0.50" step="0.05" min="0.1" max="0.9"
-                         class="w-16 text-xs px-2 py-1 rounded outline-none"
-                         style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
-                </div>
-              </div>
-            </div>
-
-            <!-- Optional collapsible manual path section -->
-            <div id="manualPathSection" class="card2 p-3 flex flex-wrap gap-2 items-end hidden" style="border-style:dashed;">
-              <div class="flex-1 min-w-48">
-                <label class="text-xs font-medium block mb-1" style="color:var(--muted);">Folder Path (contains images/ or images directly)</label>
-                <input id="evalDataset" type="text" placeholder="C:/path/to/dataset"
-                       class="w-full text-xs px-2.5 py-1.5 rounded outline-none"
-                       style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
-              </div>
-              <div class="w-48">
-                <label class="text-xs font-medium block mb-1" style="color:var(--muted);">GT CSV (optional)</label>
-                <input id="evalCsv" type="text" placeholder="counts.csv"
-                       class="w-full text-xs px-2.5 py-1.5 rounded outline-none"
-                       style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
-              </div>
-              <button onclick="runBenchmark()" id="evalBtn"
-                      class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-90"
-                      style="background:var(--accent); color:white;">
-                <span>Run Path Evaluation</span>
+        <div id="panel-benchmark" class="tab-panel flex-1 min-h-0 w-full h-full flex flex-col gap-3 overflow-y-auto hidden">
+          <!-- Controls & Quick Actions -->
+          <div class="card2 p-3 flex flex-wrap gap-3 items-center justify-between flex-none">
+            <!-- Action buttons -->
+            <div class="flex flex-wrap items-center gap-2">
+              <button onclick="runBenchmarkFromRecords()" id="evalRecordsBtn"
+                      class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold px-4 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95 shadow"
+                      style="background:var(--accent); color:white;" title="Benchmark all active models across saved detections">
+                <svg class="w-4 h-4 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+                <span>Benchmark From Saved Records</span>
               </button>
+
+              <input type="file" id="datasetZipInput" accept=".zip" class="hidden" onchange="uploadDatasetZip(this.files[0])" />
+              <button onclick="document.getElementById('datasetZipInput').click()" id="uploadZipBtn"
+                      class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-80"
+                      style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" title="Upload a .zip containing images/ and labels/">
+                <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>
+                </svg>
+                <span>Upload Dataset (.zip)</span>
+              </button>
+
+              <button onclick="openEvalModal()" class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95 shadow"
+                      style="background:linear-gradient(135deg, #2563eb, #4f46e5); color:white;" title="Run academic evaluation on single image / batch with confusion matrix">
+                <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+                  <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+                </svg>
+                <span>Academic Sample Benchmark</span>
+              </button>
+
+              <button onclick="toggleCustomPathSection()" class="text-xs px-2.5 py-2 rounded-lg transition-all"
+                      style="background:var(--bg3); color:var(--muted); border:1px solid var(--border);" title="Enter custom directory path on server">
+                Manual Path ▾
+              </button>
+
+              <button onclick="loadLatestResults()" class="text-xs px-3 py-2 rounded-lg transition-all hover:opacity-80"
+                      style="background:var(--bg3); color:var(--muted);">Load Stored</button>
             </div>
 
-            <!-- Benchmark metrics & charts -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 flex-none">
-              <!-- Precision -->
-              <div class="card2 p-3.5 flex flex-col justify-between" style="border:1px solid rgba(59,130,246,0.25);">
-                <div class="flex items-center justify-between mb-1">
-                  <span class="text-[10px] uppercase font-bold text-blue-400">Precision</span>
-                  <span id="benchBadgePrecision" class="text-[9px] font-mono px-1.5 py-0.5 rounded text-blue-300" style="background:#3b82f618;">TP / (TP+FP)</span>
-                </div>
-                <div class="flex items-baseline justify-between mb-2">
-                  <span id="benchValPrecision" class="text-2xl font-black text-blue-400">0.00%</span>
-                  <span class="text-[10px]" style="color:var(--muted);">Detection Accuracy</span>
-                </div>
-                <div class="w-full" style="height:140px;">
-                  <canvas id="benchPrecisionChart"></canvas>
-                </div>
+            <!-- Confidence & IoU filters -->
+            <div class="flex items-center gap-2">
+              <div>
+                <label class="text-[10px] uppercase font-bold block" style="color:var(--muted);">Conf</label>
+                <input id="evalConf" type="number" value="0.50" step="0.05" min="0.05" max="0.95"
+                       class="w-16 text-xs px-2 py-1 rounded outline-none"
+                       style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
               </div>
-
-              <!-- Recall -->
-              <div class="card2 p-3.5 flex flex-col justify-between" style="border:1px solid rgba(34,197,94,0.25);">
-                <div class="flex items-center justify-between mb-1">
-                  <span class="text-[10px] uppercase font-bold text-emerald-400">Recall</span>
-                  <span id="benchBadgeRecall" class="text-[9px] font-mono px-1.5 py-0.5 rounded text-emerald-300" style="background:#22c55e18;">TP / (TP+FN)</span>
-                </div>
-                <div class="flex items-baseline justify-between mb-2">
-                  <span id="benchValRecall" class="text-2xl font-black text-emerald-400">0.00%</span>
-                  <span class="text-[10px]" style="color:var(--muted);">Sensitivity Coverage</span>
-                </div>
-                <div class="w-full" style="height:140px;">
-                  <canvas id="benchRecallChart"></canvas>
-                </div>
+              <div>
+                <label class="text-[10px] uppercase font-bold block" style="color:var(--muted);">IoU</label>
+                <input id="evalIou" type="number" value="0.50" step="0.05" min="0.1" max="0.9"
+                       class="w-16 text-xs px-2 py-1 rounded outline-none"
+                       style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
               </div>
+            </div>
+          </div>
 
-              <!-- F1-Score -->
-              <div class="card2 p-3.5 flex flex-col justify-between" style="border:1px solid rgba(99,102,241,0.25);">
-                <div class="flex items-center justify-between mb-1">
-                  <span class="text-[10px] uppercase font-bold text-indigo-400">F1-Score</span>
-                  <span id="benchBadgeF1" class="text-[9px] font-mono px-1.5 py-0.5 rounded text-indigo-300" style="background:#6366f118;">Harmonic Mean</span>
-                </div>
-                <div class="flex items-baseline justify-between mb-2">
-                  <span id="benchValF1" class="text-2xl font-black text-indigo-400">0.00%</span>
-                  <span class="text-[10px]" style="color:var(--muted);">Overall Quality</span>
-                </div>
-                <div class="w-full" style="height:140px;">
-                  <canvas id="benchF1Chart"></canvas>
-                </div>
+          <!-- Optional collapsible manual path section -->
+          <div id="manualPathSection" class="card2 p-3 flex flex-wrap gap-2 items-end hidden flex-none" style="border-style:dashed;">
+            <div class="flex-1 min-w-48">
+              <label class="text-xs font-medium block mb-1" style="color:var(--muted);">Folder Path (contains images/ or images directly)</label>
+              <input id="evalDataset" type="text" placeholder="C:/path/to/dataset"
+                     class="w-full text-xs px-2.5 py-1.5 rounded outline-none"
+                     style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+            </div>
+            <div class="w-48">
+              <label class="text-xs font-medium block mb-1" style="color:var(--muted);">GT CSV (optional)</label>
+              <input id="evalCsv" type="text" placeholder="counts.csv"
+                     class="w-full text-xs px-2.5 py-1.5 rounded outline-none"
+                     style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+            </div>
+            <button onclick="runBenchmark()" id="evalBtn"
+                    class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-90"
+                    style="background:var(--accent); color:white;">
+              <span>Run Path Evaluation</span>
+            </button>
+          </div>
+
+          <!-- Benchmark metrics & charts (Responsive dynamic grid for all window sizes) -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2.5 flex-none">
+            <!-- Precision -->
+            <div class="card2 p-3 flex flex-col justify-between" style="border:1px solid rgba(59,130,246,0.25);">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[10px] uppercase font-bold text-blue-400">Precision</span>
+                <span id="benchBadgePrecision" class="text-[9px] font-mono px-1.5 py-0.5 rounded text-blue-300" style="background:#3b82f618;">TP / (TP+FP)</span>
+              </div>
+              <div class="flex items-baseline justify-between mb-1.5">
+                <span id="benchValPrecision" class="text-xl sm:text-2xl font-black text-blue-400">0.00%</span>
+                <span class="text-[9.5px] truncate" style="color:var(--muted);">Accuracy</span>
+              </div>
+              <div class="relative w-full h-[115px] sm:h-[125px]">
+                <canvas id="benchPrecisionChart"></canvas>
               </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 flex-none">
-              <!-- MAE -->
-              <div class="card2 p-3.5 flex flex-col justify-between" style="border:1px solid rgba(245,158,11,0.25);">
-                <div class="flex items-center justify-between mb-1">
-                  <span class="text-[10px] uppercase font-bold text-amber-400">Mean Absolute Error (MAE)</span>
-                  <span class="text-[9px] font-mono px-1.5 py-0.5 rounded text-amber-300" style="background:#f59e0b18;">Count Deviation</span>
-                </div>
-                <div class="flex items-baseline justify-between mb-2">
-                  <span id="benchValMae" class="text-2xl font-black text-amber-400">0.00</span>
-                  <span class="text-[10px]" style="color:var(--muted);">Average Count Offset</span>
-                </div>
-                <div class="w-full" style="height:120px;">
-                  <canvas id="benchMaeChart"></canvas>
-                </div>
+            <!-- Recall -->
+            <div class="card2 p-3 flex flex-col justify-between" style="border:1px solid rgba(34,197,94,0.25);">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[10px] uppercase font-bold text-emerald-400">Recall</span>
+                <span id="benchBadgeRecall" class="text-[9px] font-mono px-1.5 py-0.5 rounded text-emerald-300" style="background:#22c55e18;">TP / (TP+FN)</span>
               </div>
-
-              <!-- MAPE -->
-              <div class="card2 p-3.5 flex flex-col justify-between" style="border:1px solid rgba(239,68,68,0.25);">
-                <div class="flex items-center justify-between mb-1">
-                  <span class="text-[10px] uppercase font-bold text-rose-400">MAPE</span>
-                  <span class="text-[9px] font-mono px-1.5 py-0.5 rounded text-rose-300" style="background:#ef444418;">Percentage Error</span>
-                </div>
-                <div class="flex items-baseline justify-between mb-2">
-                  <span id="benchValMape" class="text-2xl font-black text-rose-400">0.00%</span>
-                  <span class="text-[10px]" style="color:var(--muted);">Relative Discrepancy</span>
-                </div>
-                <div class="w-full" style="height:120px;">
-                  <canvas id="benchMapeChart"></canvas>
-                </div>
+              <div class="flex items-baseline justify-between mb-1.5">
+                <span id="benchValRecall" class="text-xl sm:text-2xl font-black text-emerald-400">0.00%</span>
+                <span class="text-[9.5px] truncate" style="color:var(--muted);">Sensitivity</span>
+              </div>
+              <div class="relative w-full h-[115px] sm:h-[125px]">
+                <canvas id="benchRecallChart"></canvas>
               </div>
             </div>
 
-            <!-- Benchmark table -->
-            <div class="card2 overflow-auto flex-none" style="max-height:200px;">
-              <table class="bench-table w-full text-left border-collapse">
-                <thead><tr>
-                  <th class="px-3 py-2">Model</th>
-                  <th class="px-3 py-2">Precision</th>
-                  <th class="px-3 py-2">Recall</th>
-                  <th class="px-3 py-2">F1-score</th>
-                  <th class="px-3 py-2">MAE</th>
-                  <th class="px-3 py-2">MAPE (%)</th>
-                  <th class="px-3 py-2">Images</th>
-                  <th class="px-3 py-2">Inf ms</th>
-                </tr></thead>
-                <tbody id="benchTableBody">
-                  <tr><td colspan="8" class="px-3 py-4 text-center text-xs" style="color:var(--muted);">Run an evaluation or click Benchmark From Saved Records to compare</td></tr>
-                </tbody>
-              </table>
+            <!-- F1-Score -->
+            <div class="card2 p-3 flex flex-col justify-between" style="border:1px solid rgba(99,102,241,0.25);">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[10px] uppercase font-bold text-indigo-400">F1-Score</span>
+                <span id="benchBadgeF1" class="text-[9px] font-mono px-1.5 py-0.5 rounded text-indigo-300" style="background:#6366f118;">Harmonic Mean</span>
+              </div>
+              <div class="flex items-baseline justify-between mb-1.5">
+                <span id="benchValF1" class="text-xl sm:text-2xl font-black text-indigo-400">0.00%</span>
+                <span class="text-[9.5px] truncate" style="color:var(--muted);">Quality</span>
+              </div>
+              <div class="relative w-full h-[115px] sm:h-[125px]">
+                <canvas id="benchF1Chart"></canvas>
+              </div>
             </div>
+
+            <!-- MAE -->
+            <div class="card2 p-3 flex flex-col justify-between" style="border:1px solid rgba(245,158,11,0.25);">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[10px] uppercase font-bold text-amber-400">MAE</span>
+                <span class="text-[9px] font-mono px-1.5 py-0.5 rounded text-amber-300" style="background:#f59e0b18;">Count Offset</span>
+              </div>
+              <div class="flex items-baseline justify-between mb-1.5">
+                <span id="benchValMae" class="text-xl sm:text-2xl font-black text-amber-400">0.00</span>
+                <span class="text-[9.5px] truncate" style="color:var(--muted);">Avg Error</span>
+              </div>
+              <div class="relative w-full h-[115px] sm:h-[125px]">
+                <canvas id="benchMaeChart"></canvas>
+              </div>
+            </div>
+
+            <!-- MAPE -->
+            <div class="card2 p-3 flex flex-col justify-between" style="border:1px solid rgba(239,68,68,0.25);">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[10px] uppercase font-bold text-rose-400">MAPE</span>
+                <span class="text-[9px] font-mono px-1.5 py-0.5 rounded text-rose-300" style="background:#ef444418;">Percentage</span>
+              </div>
+              <div class="flex items-baseline justify-between mb-1.5">
+                <span id="benchValMape" class="text-xl sm:text-2xl font-black text-rose-400">0.00%</span>
+                <span class="text-[9.5px] truncate" style="color:var(--muted);">Discrepancy</span>
+              </div>
+              <div class="relative w-full h-[115px] sm:h-[125px]">
+                <canvas id="benchMapeChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Benchmark comparison table (Flexibly expands to window height with sticky header) -->
+          <div class="card2 overflow-auto flex-1 min-h-[140px] rounded-lg border" style="border-color:var(--border);">
+            <table class="bench-table w-full text-left border-collapse text-xs">
+              <thead style="position:sticky; top:0; background:var(--card2); z-index:5;"><tr>
+                <th class="px-3 py-2">Model</th>
+                <th class="px-3 py-2">Precision</th>
+                <th class="px-3 py-2">Recall</th>
+                <th class="px-3 py-2">F1-score</th>
+                <th class="px-3 py-2">MAE</th>
+                <th class="px-3 py-2">MAPE (%)</th>
+                <th class="px-3 py-2">Images</th>
+                <th class="px-3 py-2">Inf ms</th>
+              </tr></thead>
+              <tbody id="benchTableBody">
+                <tr><td colspan="8" class="px-3 py-4 text-center text-xs" style="color:var(--muted);">Run an evaluation or click Benchmark From Saved Records to compare</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
         <!-- Records tab -->
-        <div id="panel-records" class="tab-panel flex-1 flex flex-col min-h-0 hidden" style="min-height:220px; height:100%;">
+        <div id="panel-records" class="tab-panel flex-1 min-h-0 w-full h-full flex flex-col overflow-hidden hidden">
           <div class="flex flex-wrap items-center justify-between mb-2 gap-2 flex-none">
             <div class="flex items-center gap-2">
               <span id="recordsCountBadge" class="text-xs font-semibold px-2.5 py-1 rounded-full"
@@ -690,7 +697,6 @@
                      oninput="filterRecords(this.value)"
                      class="text-xs px-2.5 py-1.5 rounded outline-none w-56"
                      style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
-              <span class="text-[11px] hidden sm:inline" style="color:var(--muted);">💡 Click any row to inspect per-model metrics</span>
             </div>
             <div class="flex items-center gap-2">
               <button onclick="loadRecords()" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded transition-all hover:opacity-80 font-medium"
@@ -709,7 +715,7 @@
               </button>
             </div>
           </div>
-          <div class="flex-1 overflow-auto rounded-lg border" style="border-color:var(--border); min-height:180px;">
+          <div class="flex-1 min-h-0 overflow-auto rounded-lg border" style="border-color:var(--border);">
             <table class="bench-table w-full text-left border-collapse">
               <thead style="position:sticky; top:0; background:var(--card2); z-index:5;"><tr>
                 <th class="px-3 py-2">ID</th>
@@ -1574,8 +1580,8 @@ async function loadModels() {
     d.available.forEach(name => {
       const active = d.active.includes(name);
       div.innerHTML += `
-        <label class="flex items-center gap-2 text-xs cursor-pointer">
-          <input type="checkbox" class="model-checkbox accent-blue-500" value="${name}" ${active ? 'checked' : ''} />
+        <label class="flex items-center gap-2 text-xs cursor-pointer select-none hover:opacity-80 transition-opacity">
+          <input type="checkbox" class="model-checkbox accent-blue-500 rounded cursor-pointer" value="${name}" ${active ? 'checked' : ''} onchange="onModelToggle(this)" />
           <span class="font-mono truncate" title="${name}">${name}</span>
         </label>`;
     });
@@ -1587,15 +1593,50 @@ async function loadModels() {
   } catch(e) { console.error(e); }
 }
 
-async function applyModelSelection() {
+async function onModelToggle(checkbox) {
   const checked = [...document.querySelectorAll('.model-checkbox:checked')].map(c => c.value);
-  await fetch('/api/models/set-active', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({active: checked}),
-  });
-  document.getElementById('activeModelBadge').textContent = checked.length ? checked.join(', ') : 'No models';
-  toast('Active models updated', 'success');
+  if (!checked.length) {
+    toast('At least one model must remain selected', 'warning');
+    if (checkbox) checkbox.checked = true;
+    return;
+  }
+
+  // Update active model badge immediately in UI
+  const badge = document.getElementById('activeModelBadge');
+  if (badge) badge.textContent = checked.join(', ');
+
+  try {
+    const res = await fetch('/api/models/set-active', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({active: checked}),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      toast(err.detail || 'Failed to update active models', 'error');
+      return;
+    }
+    if (checkbox) {
+      toast(`${checkbox.value} ${checkbox.checked ? 'activated' : 'deactivated'}`, 'info');
+    }
+
+    // Real-time re-inference on cached image if present
+    if (S.hasCachedImage) {
+      reprocessCachedImage();
+    }
+
+    // Refresh benchmark tab baseline models if currently awaiting scan
+    const bTable = document.getElementById('benchTableBody');
+    if (bTable && bTable.innerHTML.includes('Awaiting scan')) {
+      renderBenchmarkResults([]);
+    }
+  } catch (e) {
+    toast('Error updating models: ' + e.message, 'error');
+  }
+}
+
+async function applyModelSelection() {
+  return onModelToggle(null);
 }
 
 // ═══════════════════════════════════════════════════ SLIDERS & CONFIG SYNC
@@ -2618,12 +2659,8 @@ function switchTab(name) {
   const activePanel = document.getElementById(`panel-${name}`);
   if (activePanel) {
     activePanel.classList.remove('hidden');
-    if (name === 'records' || name === 'benchmark') {
-      activePanel.classList.add('flex');
-      activePanel.style.display = 'flex';
-    } else {
-      activePanel.style.display = 'block';
-    }
+    activePanel.classList.add('flex');
+    activePanel.style.display = 'flex';
   }
   const btn = document.getElementById(`tab-${name}`);
   if (btn) {
@@ -2658,6 +2695,11 @@ function toggleCustomPathSection() {
 }
 
 async function runBenchmarkFromRecords() {
+  if (!S.allRecords || S.allRecords.length === 0) {
+    toast('Cannot benchmark: No detection records found in database. Run detections or upload media first.', 'error');
+    return;
+  }
+
   const btn = document.getElementById('evalRecordsBtn');
   btn.disabled = true;
   const originalHtml = btn.innerHTML;
@@ -2668,15 +2710,15 @@ async function runBenchmarkFromRecords() {
     const r = await fetch('/api/evaluate/from-records', {method: 'POST'});
     const d = await r.json();
     if (!r.ok) {
-      toast(d.detail || 'Record benchmark error', 'error');
+      toast(d.detail || 'Record benchmark error: No records available', 'error');
+      return;
+    }
+    if (!d.results || !d.results.length || !d.results.some(r => r.total_images > 0)) {
+      toast('No multi-model telemetry found in records to benchmark. Run detections with active models first.', 'warning');
       return;
     }
     renderBenchmarkResults(d.results);
-    if (d.results && d.results.some(r => r.total_images > 0)) {
-      toast(`Benchmark complete — evaluated ${d.results.length} model(s) across stored records`, 'success');
-    } else {
-      toast('No stored detection records found yet. Benchmark metrics reset to 0.00%.', 'info');
-    }
+    toast(`Benchmark complete — evaluated ${d.results.length} model(s) across stored records`, 'success');
   } catch (e) {
     toast('Benchmark error: ' + e.message, 'error');
   } finally {
@@ -2730,8 +2772,8 @@ async function runBenchmark() {
   const iou      = parseFloat(document.getElementById('evalIou').value);
   const models   = [...document.querySelectorAll('.model-checkbox:checked')].map(c => c.value);
 
-  if (!dataset && !gt_csv) { toast('Enter a dataset folder or upload a .zip dataset', 'error'); return; }
-  if (!models.length) { toast('Select at least one model in sidebar', 'error'); return; }
+  if (!dataset && !gt_csv) { toast('Please enter a dataset folder path or upload a .zip dataset', 'error'); return; }
+  if (!models.length) { toast('Please select at least one active model in sidebar', 'error'); return; }
 
   const btn = document.getElementById('evalBtn');
   btn.disabled = true;
@@ -2778,17 +2820,20 @@ async function loadLatestResults() {
     const d = await r.json();
     if (d && d.length && d.some(x => (x.total_images > 0 || x.f1 > 0))) {
       renderBenchmarkResults(d);
-    } else {
-      // Auto-fallback to benchmarking stored records!
-      const rec = await fetch('/api/evaluate/from-records', {method: 'POST'}).then(res => res.json());
-      if (rec.results && rec.results.length && rec.results.some(x => x.total_images > 0)) {
-        renderBenchmarkResults(rec.results);
-      } else {
-        renderBenchmarkResults([]);
+      return;
+    }
+    if (S.allRecords && S.allRecords.length > 0) {
+      const recRes = await fetch('/api/evaluate/from-records', {method: 'POST'});
+      if (recRes.ok) {
+        const rec = await recRes.json();
+        if (rec.results && rec.results.length && rec.results.some(x => x.total_images > 0)) {
+          renderBenchmarkResults(rec.results);
+          return;
+        }
       }
     }
+    renderBenchmarkResults([]);
   } catch(e) {
-    console.error(e);
     renderBenchmarkResults([]);
   }
 }
@@ -3082,27 +3127,33 @@ async function runSampleEvaluation() {
     fd.append('conf', confVal);
     fd.append('iou_thresh', iouVal);
 
-    // Selected models
+    // Selected models validation
     const checked = Array.from(document.querySelectorAll('input[name="evalModels"]:checked')).map(c => c.value);
-    if (checked.length) {
-      fd.append('models', JSON.stringify(checked));
+    if (!checked.length) {
+      toast('Please select at least one model to evaluate', 'error');
+      return;
     }
+    fd.append('models', JSON.stringify(checked));
 
     if (tab === 'quick') {
-      const actualCount = document.getElementById('evalQuickActualCount')?.value;
-      if (actualCount === '' || actualCount == null) {
-        toast('Please enter the Actual Ground Truth Count for Option A', 'error');
+      const actualCountStr = document.getElementById('evalQuickActualCount')?.value?.trim();
+      if (actualCountStr === '' || actualCountStr == null || isNaN(actualCountStr) || parseInt(actualCountStr) < 0) {
+        toast('Please enter a valid Actual Ground Truth Count (0 or more) for Option A', 'error');
         return;
       }
-      fd.append('actual_count', parseInt(actualCount));
+      fd.append('actual_count', parseInt(actualCountStr));
 
       const useCached = document.getElementById('evalQuickUseCachedHidden')?.value === 'true';
       if (useCached) {
+        if (!S.hasCachedImage) {
+          toast('No image is currently cached in memory. Please upload media or switch to "Change / Upload" to select a photo.', 'error');
+          return;
+        }
         fd.append('use_cached_image', 'true');
       } else if (S.evalCachedFile) {
         fd.append('image_file', S.evalCachedFile);
       } else {
-        toast('Please browse and select an image file or choose Current Cached', 'error');
+        toast('Please browse and select an image file to evaluate', 'error');
         return;
       }
     } else if (tab === 'yolo') {
@@ -3117,8 +3168,11 @@ async function runSampleEvaluation() {
 
       if (imgInput?.files?.length) {
         fd.append('image_file', imgInput.files[0]);
-      } else {
+      } else if (S.hasCachedImage) {
         fd.append('use_cached_image', 'true');
+      } else {
+        toast('No image available. Please browse an image file to evaluate with the YOLO .txt file.', 'error');
+        return;
       }
     }
 
@@ -3267,6 +3321,14 @@ async function clearEvalBenchmarks() {
     toast('Error clearing benchmarks', 'error');
   }
 }
+
+// ═══════════════════════════════════════════════════ RESPONSIVE RESIZE LISTENER
+window.addEventListener('resize', () => {
+  clearTimeout(S._resizeTimer);
+  S._resizeTimer = setTimeout(() => {
+    Object.values(S.charts).forEach(c => c?.resize?.());
+  }, 80);
+});
 </script>
 </body>
 </html>

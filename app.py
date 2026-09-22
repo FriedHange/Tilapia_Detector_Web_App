@@ -1125,25 +1125,10 @@ async def evaluate_from_records(limit: int = 500):
     """Instant benchmark comparison aggregated from saved records."""
     bench = await db.query_benchmark_from_records(limit=limit)
     if not bench:
-        models = list(state.model_pool.keys())
-        return {
-            "results": [
-                {
-                    "model_name": m,
-                    "total_images": 0,
-                    "avg_count": 0,
-                    "avg_confidence": 0,
-                    "avg_inference_ms": 0,
-                    "mae": 0.0,
-                    "mape": 0.0,
-                    "precision": 0.0,
-                    "recall": 0.0,
-                    "f1": 0.0,
-                    "note": "No multi-model telemetry records found yet. Upload media or run inference with active models.",
-                }
-                for m in models
-            ]
-        }
+        raise HTTPException(
+            status_code=400,
+            detail="No detection records found in database to benchmark. Please capture detections or upload media first."
+        )
     return {"results": bench}
 
 
