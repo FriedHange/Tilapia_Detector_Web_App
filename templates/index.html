@@ -213,6 +213,17 @@
       <span id="deviceText">Checking device...</span>
     </div>
 
+    <!-- Academic Evaluation Modal Trigger -->
+    <button onclick="openEvalModal()" class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold transition-all hover:opacity-90 active:scale-95 shadow-sm"
+            style="background:linear-gradient(135deg, rgba(59,130,246,0.2), rgba(99,102,241,0.2)); border:1px solid rgba(99,102,241,0.35); color:#a5b4fc;"
+            title="Open Academic Evaluation & Benchmark Mode">
+      <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+        <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+      </svg>
+      <span>Academic Evaluation</span>
+    </button>
+
     <!-- Theme toggle -->
     <button id="themeToggle" onclick="toggleTheme()"
       class="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 hover:text-white"
@@ -341,6 +352,30 @@
              oninput="onSliderChange('iou', this.value)" class="w-full" />
     </div>
 
+    <!-- Dynamic In-Memory Image Tuning Badge -->
+    <div id="cachedImageIndicator" class="hidden text-[11px] p-2.5 rounded-lg transition-all"
+         style="background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.25); color:var(--text);">
+      <div class="flex items-center justify-between font-bold mb-0.5">
+        <span class="flex items-center gap-1 text-blue-400">
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Cached Image
+        </span>
+        <span id="cachedTuningStatus" class="text-[9px] font-mono px-1.5 py-0.5 rounded text-emerald-400" style="background:#22c55e18;">Active</span>
+      </div>
+      <div id="cachedFilenameText" class="truncate text-[10px] text-slate-300 font-mono">image.jpg</div>
+      <p class="text-[9.5px] mt-1 text-slate-400">Sliders tune annotations & count instantly</p>
+    </div>
+
+    <!-- Academic Evaluation Trigger Button -->
+    <button onclick="openEvalModal()" class="w-full py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all hover:opacity-90 active:scale-95 shadow"
+            style="background:linear-gradient(135deg, #2563eb, #4f46e5); color:white;">
+      <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+        <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+      </svg>
+      <span>Academic Evaluation</span>
+    </button>
+
     <hr style="border-color:var(--border);" />
 
     <!-- Tub capacity -->
@@ -360,7 +395,7 @@
 
     <!-- Video Canvas -->
     <div id="videoCard" class="card flex-none" style="padding:10px;">
-      <div id="canvasWrapper">
+      <div id="canvasWrapper" ondragover="onCanvasDragOver(event)" ondragleave="onCanvasDragLeave(event)" ondrop="onCanvasDrop(event)">
         <!-- Dedicated video element in DOM for continuous webcam decoding -->
         <video id="webcamVideo" autoplay muted playsinline style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; z-index:-1;"></video>
         <!-- Live feed canvas -->
@@ -379,8 +414,19 @@
               <circle cx="17" cy="10" r="1" fill="currentColor"/>
             </svg>
           </div>
-          <p class="text-base font-semibold" style="color:var(--muted);">Select a source and click Start</p>
-          <p class="text-sm mt-1" style="color:var(--muted);">Live fingerling count & stocking density monitoring</p>
+          <p class="text-base font-semibold" style="color:var(--text);">Select a source or Drag & Drop media here</p>
+          <p class="text-xs mt-1" style="color:var(--muted);">Drop photos (.jpg, .png) or recorded videos (.mp4) to count & record</p>
+        </div>
+
+        <!-- Drag Over Dropzone Overlay -->
+        <div id="canvasDropOverlay" class="hidden absolute inset-0 z-30 flex flex-col items-center justify-center text-center pointer-events-none"
+             style="background:rgba(15,23,42,0.85); backdrop-filter:blur(4px); border:2px dashed var(--accent); border-radius:12px;">
+          <div class="w-16 h-16 rounded-2xl flex items-center justify-center mb-2 animate-bounce"
+               style="background:rgba(59,130,246,0.2); color:var(--accent);">
+            <svg class="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+          </div>
+          <p class="text-sm font-bold text-white">Drop photo or video here</p>
+          <p class="text-xs text-blue-300">Inference will run and save record automatically</p>
         </div>
       </div>
 
@@ -405,7 +451,10 @@
         <button class="tab-btn text-sm font-medium py-3 px-4 transition-colors inline-flex items-center gap-1.5" onclick="switchTab('benchmark')" id="tab-benchmark" style="color:var(--muted);">
           <span>Benchmark</span>
         </button>
-        <button class="tab-btn text-sm font-medium py-3 px-4 transition-colors" onclick="switchTab('records')" id="tab-records" style="color:var(--muted);">Records</button>
+        <button class="tab-btn text-sm font-medium py-3 px-4 transition-colors inline-flex items-center gap-1.5" onclick="switchTab('records')" id="tab-records" style="color:var(--muted);">
+          <span>Records</span>
+          <span id="tabRecordsBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded-full font-bold transition-all" style="background:var(--bg3); color:var(--accent);">0</span>
+        </button>
         <div class="ml-auto flex items-center gap-2 py-2">
           <button onclick="refreshAnalytics()" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded transition-all hover:opacity-80 font-medium"
                   style="background:var(--bg3); color:var(--accent);">
@@ -414,7 +463,7 @@
             </svg>
             <span>Refresh</span>
           </button>
-          <a href="/api/analytics/export/csv" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded transition-all hover:opacity-80 font-medium"
+          <a href="/api/records/export/csv" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded transition-all hover:opacity-80 font-medium"
              style="background:var(--bg3); color:var(--success);">
             <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>
@@ -436,10 +485,10 @@
       </div>
 
       <!-- Tab content panels -->
-      <div id="analyticsBody" class="flex-1 overflow-auto p-4" style="min-height:0;">
+      <div id="analyticsBody" class="flex-1 flex flex-col overflow-auto p-4 min-h-0" style="min-height:0; height:100%;">
 
         <!-- Trends tab -->
-        <div id="panel-trends" class="tab-panel h-full">
+        <div id="panel-trends" class="tab-panel flex-1 min-h-0">
           <canvas id="trendsChart" style="max-height:220px;"></canvas>
         </div>
 
@@ -451,56 +500,163 @@
         <!-- Benchmark tab -->
         <div id="panel-benchmark" class="tab-panel h-full hidden">
           <div class="flex flex-col gap-3 h-full">
-            <!-- Controls -->
-            <div class="card2 p-3 flex flex-wrap gap-3 items-end">
+            <!-- Controls & Quick Actions -->
+            <div class="card2 p-3 flex flex-wrap gap-3 items-center justify-between">
+              <!-- Action buttons -->
+              <div class="flex flex-wrap items-center gap-2">
+                <button onclick="runBenchmarkFromRecords()" id="evalRecordsBtn"
+                        class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold px-4 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95 shadow"
+                        style="background:var(--accent); color:white;" title="Benchmark all active models across saved detections">
+                  <svg class="w-4 h-4 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                  </svg>
+                  <span>Benchmark From Saved Records</span>
+                </button>
+
+                <input type="file" id="datasetZipInput" accept=".zip" class="hidden" onchange="uploadDatasetZip(this.files[0])" />
+                <button onclick="document.getElementById('datasetZipInput').click()" id="uploadZipBtn"
+                        class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-80"
+                        style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" title="Upload a .zip containing images/ and labels/">
+                  <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>
+                  </svg>
+                  <span>Upload Dataset (.zip)</span>
+                </button>
+
+                <button onclick="openEvalModal()" class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95 shadow"
+                        style="background:linear-gradient(135deg, #2563eb, #4f46e5); color:white;" title="Run academic evaluation on single image / batch with confusion matrix">
+                  <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+                    <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+                  </svg>
+                  <span>Academic Sample Benchmark</span>
+                </button>
+
+                <button onclick="toggleCustomPathSection()" class="text-xs px-2.5 py-2 rounded-lg transition-all"
+                        style="background:var(--bg3); color:var(--muted); border:1px solid var(--border);" title="Enter custom directory path on server">
+                  Manual Path ▾
+                </button>
+
+                <button onclick="loadLatestResults()" class="text-xs px-3 py-2 rounded-lg transition-all hover:opacity-80"
+                        style="background:var(--bg3); color:var(--muted);">Load Stored</button>
+              </div>
+
+              <!-- Confidence & IoU filters -->
+              <div class="flex items-center gap-2">
+                <div>
+                  <label class="text-[10px] uppercase font-bold block" style="color:var(--muted);">Conf</label>
+                  <input id="evalConf" type="number" value="0.50" step="0.05" min="0.05" max="0.95"
+                         class="w-16 text-xs px-2 py-1 rounded outline-none"
+                         style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+                </div>
+                <div>
+                  <label class="text-[10px] uppercase font-bold block" style="color:var(--muted);">IoU</label>
+                  <input id="evalIou" type="number" value="0.50" step="0.05" min="0.1" max="0.9"
+                         class="w-16 text-xs px-2 py-1 rounded outline-none"
+                         style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Optional collapsible manual path section -->
+            <div id="manualPathSection" class="card2 p-3 flex flex-wrap gap-2 items-end hidden" style="border-style:dashed;">
               <div class="flex-1 min-w-48">
-                <label class="text-xs font-medium block mb-1" style="color:var(--muted);">Dataset Path</label>
+                <label class="text-xs font-medium block mb-1" style="color:var(--muted);">Folder Path (contains images/ or images directly)</label>
                 <input id="evalDataset" type="text" placeholder="C:/path/to/dataset"
-                       class="w-full text-xs px-2 py-1.5 rounded outline-none"
+                       class="w-full text-xs px-2.5 py-1.5 rounded outline-none"
                        style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
               </div>
-              <div class="flex-none">
+              <div class="w-48">
                 <label class="text-xs font-medium block mb-1" style="color:var(--muted);">GT CSV (optional)</label>
                 <input id="evalCsv" type="text" placeholder="counts.csv"
-                       class="w-full text-xs px-2 py-1.5 rounded outline-none"
-                       style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
-              </div>
-              <div class="flex-none">
-                <label class="text-xs font-medium block mb-1" style="color:var(--muted);">Conf</label>
-                <input id="evalConf" type="number" value="0.50" step="0.05" min="0.05" max="0.95"
-                       class="w-20 text-xs px-2 py-1.5 rounded outline-none"
-                       style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
-              </div>
-              <div class="flex-none">
-                <label class="text-xs font-medium block mb-1" style="color:var(--muted);">IoU Thresh</label>
-                <input id="evalIou" type="number" value="0.5" step="0.05" min="0.1" max="0.9"
-                       class="w-20 text-xs px-2 py-1.5 rounded outline-none"
+                       class="w-full text-xs px-2.5 py-1.5 rounded outline-none"
                        style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
               </div>
               <button onclick="runBenchmark()" id="evalBtn"
-                      class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95"
+                      class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-90"
                       style="background:var(--accent); color:white;">
-                <svg class="w-4 h-4 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M10 2v7.31L4.14 20.3a1.5 1.5 0 0 0 1.3 2.2h13.12a1.5 1.5 0 0 0 1.3-2.2L14 9.31V2"/>
-                  <path d="M8.5 2h7"/>
-                  <path d="M7 16h10"/>
-                </svg>
-                <span>Run Evaluation</span>
+                <span>Run Path Evaluation</span>
               </button>
-              <button onclick="loadLatestResults()"
-                      class="text-sm px-4 py-2 rounded-lg transition-all hover:opacity-80"
-                      style="background:var(--bg3); color:var(--muted);">Load Stored</button>
             </div>
 
-            <!-- Benchmark charts -->
-            <div class="grid grid-cols-3 gap-3 flex-none">
-              <div class="card2 p-3"><canvas id="benchPrecisionChart" height="160"></canvas></div>
-              <div class="card2 p-3"><canvas id="benchRecallChart" height="160"></canvas></div>
-              <div class="card2 p-3"><canvas id="benchF1Chart" height="160"></canvas></div>
+            <!-- Benchmark metrics & charts -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 flex-none">
+              <!-- Precision -->
+              <div class="card2 p-3.5 flex flex-col justify-between" style="border:1px solid rgba(59,130,246,0.25);">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-[10px] uppercase font-bold text-blue-400">Precision</span>
+                  <span id="benchBadgePrecision" class="text-[9px] font-mono px-1.5 py-0.5 rounded text-blue-300" style="background:#3b82f618;">TP / (TP+FP)</span>
+                </div>
+                <div class="flex items-baseline justify-between mb-2">
+                  <span id="benchValPrecision" class="text-2xl font-black text-blue-400">0.00%</span>
+                  <span class="text-[10px]" style="color:var(--muted);">Detection Accuracy</span>
+                </div>
+                <div class="w-full" style="height:140px;">
+                  <canvas id="benchPrecisionChart"></canvas>
+                </div>
+              </div>
+
+              <!-- Recall -->
+              <div class="card2 p-3.5 flex flex-col justify-between" style="border:1px solid rgba(34,197,94,0.25);">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-[10px] uppercase font-bold text-emerald-400">Recall</span>
+                  <span id="benchBadgeRecall" class="text-[9px] font-mono px-1.5 py-0.5 rounded text-emerald-300" style="background:#22c55e18;">TP / (TP+FN)</span>
+                </div>
+                <div class="flex items-baseline justify-between mb-2">
+                  <span id="benchValRecall" class="text-2xl font-black text-emerald-400">0.00%</span>
+                  <span class="text-[10px]" style="color:var(--muted);">Sensitivity Coverage</span>
+                </div>
+                <div class="w-full" style="height:140px;">
+                  <canvas id="benchRecallChart"></canvas>
+                </div>
+              </div>
+
+              <!-- F1-Score -->
+              <div class="card2 p-3.5 flex flex-col justify-between" style="border:1px solid rgba(99,102,241,0.25);">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-[10px] uppercase font-bold text-indigo-400">F1-Score</span>
+                  <span id="benchBadgeF1" class="text-[9px] font-mono px-1.5 py-0.5 rounded text-indigo-300" style="background:#6366f118;">Harmonic Mean</span>
+                </div>
+                <div class="flex items-baseline justify-between mb-2">
+                  <span id="benchValF1" class="text-2xl font-black text-indigo-400">0.00%</span>
+                  <span class="text-[10px]" style="color:var(--muted);">Overall Quality</span>
+                </div>
+                <div class="w-full" style="height:140px;">
+                  <canvas id="benchF1Chart"></canvas>
+                </div>
+              </div>
             </div>
-            <div class="grid grid-cols-2 gap-3 flex-none">
-              <div class="card2 p-3"><canvas id="benchMaeChart" height="120"></canvas></div>
-              <div class="card2 p-3"><canvas id="benchMapeChart" height="120"></canvas></div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 flex-none">
+              <!-- MAE -->
+              <div class="card2 p-3.5 flex flex-col justify-between" style="border:1px solid rgba(245,158,11,0.25);">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-[10px] uppercase font-bold text-amber-400">Mean Absolute Error (MAE)</span>
+                  <span class="text-[9px] font-mono px-1.5 py-0.5 rounded text-amber-300" style="background:#f59e0b18;">Count Deviation</span>
+                </div>
+                <div class="flex items-baseline justify-between mb-2">
+                  <span id="benchValMae" class="text-2xl font-black text-amber-400">0.00</span>
+                  <span class="text-[10px]" style="color:var(--muted);">Average Count Offset</span>
+                </div>
+                <div class="w-full" style="height:120px;">
+                  <canvas id="benchMaeChart"></canvas>
+                </div>
+              </div>
+
+              <!-- MAPE -->
+              <div class="card2 p-3.5 flex flex-col justify-between" style="border:1px solid rgba(239,68,68,0.25);">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-[10px] uppercase font-bold text-rose-400">MAPE</span>
+                  <span class="text-[9px] font-mono px-1.5 py-0.5 rounded text-rose-300" style="background:#ef444418;">Percentage Error</span>
+                </div>
+                <div class="flex items-baseline justify-between mb-2">
+                  <span id="benchValMape" class="text-2xl font-black text-rose-400">0.00%</span>
+                  <span class="text-[10px]" style="color:var(--muted);">Relative Discrepancy</span>
+                </div>
+                <div class="w-full" style="height:120px;">
+                  <canvas id="benchMapeChart"></canvas>
+                </div>
+              </div>
             </div>
 
             <!-- Benchmark table -->
@@ -517,7 +673,7 @@
                   <th class="px-3 py-2">Inf ms</th>
                 </tr></thead>
                 <tbody id="benchTableBody">
-                  <tr><td colspan="8" class="px-3 py-4 text-center text-xs" style="color:var(--muted);">Run an evaluation to see results</td></tr>
+                  <tr><td colspan="8" class="px-3 py-4 text-center text-xs" style="color:var(--muted);">Run an evaluation or click Benchmark From Saved Records to compare</td></tr>
                 </tbody>
               </table>
             </div>
@@ -525,15 +681,16 @@
         </div>
 
         <!-- Records tab -->
-        <div id="panel-records" class="tab-panel h-full flex flex-col hidden" style="height:100%;">
+        <div id="panel-records" class="tab-panel flex-1 flex flex-col min-h-0 hidden" style="min-height:220px; height:100%;">
           <div class="flex flex-wrap items-center justify-between mb-2 gap-2 flex-none">
             <div class="flex items-center gap-2">
               <span id="recordsCountBadge" class="text-xs font-semibold px-2.5 py-1 rounded-full"
                     style="background:var(--bg3); color:var(--accent);">0 records</span>
-              <input id="recordFilterInput" type="text" placeholder="Filter records..."
+              <input id="recordFilterInput" type="text" placeholder="Filter records (ID, source, status, model)..."
                      oninput="filterRecords(this.value)"
-                     class="text-xs px-2.5 py-1 rounded outline-none w-44"
+                     class="text-xs px-2.5 py-1.5 rounded outline-none w-56"
                      style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+              <span class="text-[11px] hidden sm:inline" style="color:var(--muted);">💡 Click any row to inspect per-model metrics</span>
             </div>
             <div class="flex items-center gap-2">
               <button onclick="loadRecords()" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded transition-all hover:opacity-80 font-medium"
@@ -541,7 +698,7 @@
                 <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/>
                 </svg>
-                <span>Refresh Records</span>
+                <span>Refresh</span>
               </button>
               <button onclick="clearAllEvents()" class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded transition-all hover:opacity-80 font-medium"
                       style="background:#ef444418; color:#ef4444; border:1px solid #ef444433;">
@@ -555,13 +712,18 @@
           <div class="flex-1 overflow-auto rounded-lg border" style="border-color:var(--border); min-height:180px;">
             <table class="bench-table w-full text-left border-collapse">
               <thead style="position:sticky; top:0; background:var(--card2); z-index:5;"><tr>
-                <th class="px-3 py-2">ID</th><th class="px-3 py-2">Timestamp</th>
-                <th class="px-3 py-2">Source</th><th class="px-3 py-2">Count</th>
-                <th class="px-3 py-2">Density</th><th class="px-3 py-2">Status</th>
-                <th class="px-3 py-2">Confidence</th><th class="px-3 py-2">Model</th>
+                <th class="px-3 py-2">ID</th>
+                <th class="px-3 py-2">Timestamp</th>
+                <th class="px-3 py-2">Source</th>
+                <th class="px-3 py-2">Count</th>
+                <th class="px-3 py-2">Density</th>
+                <th class="px-3 py-2">Status</th>
+                <th class="px-3 py-2">Confidence</th>
+                <th class="px-3 py-2">Models Evaluated</th>
+                <th class="px-3 py-2 text-right">Action</th>
               </tr></thead>
               <tbody id="recordsBody">
-                <tr><td colspan="8" class="px-3 py-4 text-center text-xs" style="color:var(--muted);">No records yet</td></tr>
+                <tr><td colspan="9" class="px-3 py-4 text-center text-xs" style="color:var(--muted);">No records yet</td></tr>
               </tbody>
             </table>
           </div>
@@ -653,6 +815,473 @@
     </div>
 
   </aside>
+<!-- ═══════════════════════════════════ RECORD DETAIL MODAL -->
+<div id="recordModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 hidden"
+     style="background:rgba(0,0,0,0.7); backdrop-filter:blur(5px);">
+  <div class="card overflow-hidden w-full max-w-2xl shadow-2xl flex flex-col"
+       style="background:var(--card); border:1px solid var(--border); max-height:88vh; border-radius:16px;">
+    <!-- Header -->
+    <div class="p-4 border-b flex items-center justify-between flex-none" style="border-color:var(--border);">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center font-bold font-mono text-sm"
+             style="background:rgba(59,130,246,0.15); color:var(--accent); border:1px solid rgba(59,130,246,0.3);">#</div>
+        <div>
+          <h3 class="text-sm font-bold flex items-center gap-2">
+            <span>Record Details & Multi-Model Benchmark</span>
+            <span id="modalRecordId" class="font-mono text-xs px-2 py-0.5 rounded-full" style="background:var(--bg3); color:var(--accent);">#0</span>
+          </h3>
+          <p id="modalTimestamp" class="text-xs" style="color:var(--muted);">Timestamp</p>
+        </div>
+      </div>
+      <button onclick="closeRecordModal()" class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-slate-700/30 text-base"
+              style="color:var(--muted);" title="Close">✕</button>
+    </div>
+
+    <!-- Modal Body (scrollable) -->
+    <div class="p-4 overflow-y-auto flex flex-col gap-4 text-xs">
+      <!-- Quick Telemetry Badges -->
+      <div class="grid grid-cols-4 gap-2 text-center flex-none">
+        <div class="card2 p-2.5">
+          <span class="block text-[10px] uppercase font-bold" style="color:var(--muted);">Total Count</span>
+          <span id="modalCount" class="text-lg font-black text-blue-400">0</span>
+        </div>
+        <div class="card2 p-2.5">
+          <span class="block text-[10px] uppercase font-bold" style="color:var(--muted);">Density</span>
+          <span id="modalDensity" class="text-lg font-black">0.0%</span>
+        </div>
+        <div class="card2 p-2.5">
+          <span class="block text-[10px] uppercase font-bold" style="color:var(--muted);">Status</span>
+          <span id="modalStatusBadge" class="text-xs font-bold inline-block px-2 py-0.5 rounded-full mt-0.5 badge-optimal">Optimal</span>
+        </div>
+        <div class="card2 p-2.5">
+          <span class="block text-[10px] uppercase font-bold" style="color:var(--muted);">Source</span>
+          <span id="modalSource" class="text-xs font-medium truncate block mt-1">source</span>
+        </div>
+      </div>
+
+      <!-- Ground Truth Input & Evaluator -->
+      <div class="card2 p-3 flex flex-wrap items-center justify-between gap-3 flex-none" style="background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.25);">
+        <div>
+          <span class="font-bold text-xs block text-blue-400">Ground Truth Verification</span>
+          <span class="text-[11px]" style="color:var(--muted);">Enter verified actual count to calculate individual model error and accuracy.</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="modalGtInput" type="number" min="0" placeholder="e.g. 45"
+                 class="w-28 text-xs px-2.5 py-1.5 rounded outline-none font-bold"
+                 style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+          <button onclick="saveRecordGroundTruth()" class="px-3 py-1.5 rounded font-semibold text-xs transition-opacity hover:opacity-90 shadow"
+                  style="background:var(--accent); color:white;">Save & Compute</button>
+        </div>
+      </div>
+
+      <!-- Multi-Model Comparison Table -->
+      <div class="flex-none">
+        <h4 class="text-xs font-bold uppercase tracking-wider mb-2" style="color:var(--muted);">Per-Model Comparison & Metrics</h4>
+        <div class="card2 overflow-hidden">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr style="background:var(--bg3); color:var(--muted); font-size:10px; text-transform:uppercase;">
+                <th class="px-3 py-2">Model</th>
+                <th class="px-3 py-2">Detected Count</th>
+                <th class="px-3 py-2">Vs Consensus</th>
+                <th class="px-3 py-2">Avg Conf</th>
+                <th class="px-3 py-2">Inference ms</th>
+                <th class="px-3 py-2">Accuracy (vs GT)</th>
+              </tr>
+            </thead>
+            <tbody id="modalModelTableBody">
+              <tr><td colspan="6" class="px-3 py-3 text-center" style="color:var(--muted);">Loading model metrics...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Bounding Boxes breakdown -->
+      <div class="flex-none">
+        <div class="flex items-center justify-between mb-2">
+          <h4 class="text-xs font-bold uppercase tracking-wider" style="color:var(--muted);">Detected Bounding Boxes</h4>
+          <span id="modalBoxCountBadge" class="text-[10px] px-2 py-0.5 rounded-full font-mono" style="background:var(--bg3); color:var(--muted);">0 boxes</span>
+        </div>
+        <div class="card2 overflow-auto" style="max-height:150px;">
+          <table class="w-full text-left border-collapse text-[11px]">
+            <thead>
+              <tr style="background:var(--bg3); color:var(--muted); font-size:10px; text-transform:uppercase;">
+                <th class="px-2.5 py-1.5">#</th>
+                <th class="px-2.5 py-1.5">Model</th>
+                <th class="px-2.5 py-1.5">Confidence</th>
+                <th class="px-2.5 py-1.5">Coordinates [x1, y1, x2, y2]</th>
+              </tr>
+            </thead>
+            <tbody id="modalBoxTableBody">
+              <tr><td colspan="4" class="px-2.5 py-2 text-center" style="color:var(--muted);">No boxes</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ ACADEMIC EVALUATION & THESIS BENCHMARK MODAL -->
+<div id="evalSampleModal" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 hidden"
+     style="background:rgba(0,0,0,0.75); backdrop-filter:blur(6px);">
+  <div class="card overflow-hidden w-full max-w-4xl shadow-2xl flex flex-col"
+       style="background:var(--card); border:1px solid var(--border); max-height:92vh; border-radius:18px;">
+    <!-- Modal Header -->
+    <div class="p-4 border-b flex items-center justify-between flex-none" style="border-color:var(--border);">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm"
+             style="background:linear-gradient(135deg, rgba(59,130,246,0.2), rgba(99,102,241,0.2)); border:1px solid rgba(99,102,241,0.3); color:#818cf8;">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+            <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+          </svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold flex items-center gap-2">
+            <span>Academic Evaluation & Thesis Benchmark</span>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full uppercase font-bold" style="background:#6366f122; color:#a5b4fc; border:1px solid #6366f144;">Per-Scan Mode</span>
+          </h3>
+          <p class="text-xs" style="color:var(--muted);">Automated academic validation metrics: Precision, Recall, F1-Score, MAE, MAPE & Confusion Matrix</p>
+        </div>
+      </div>
+      <button onclick="closeEvalModal()" class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-slate-700/30 text-base"
+              style="color:var(--muted);" title="Close">✕</button>
+    </div>
+
+    <!-- Mode Selector Tabs -->
+    <div class="flex border-b px-4 gap-2 flex-none" style="border-color:var(--border); background:var(--bg3);">
+      <button id="evalTabBtn-quick" onclick="switchEvalModalTab('quick')"
+              class="text-xs font-semibold py-2.5 px-3 border-b-2 border-blue-500 text-blue-500 dark:text-blue-400 transition-colors">
+        Option A: Quick Ground Truth Count
+      </button>
+      <button id="evalTabBtn-yolo" onclick="switchEvalModalTab('yolo')"
+              class="text-xs font-semibold py-2.5 px-3 border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors">
+        Option B: Annotated Test Image (YOLO .txt)
+      </button>
+      <button id="evalTabBtn-history" onclick="switchEvalModalTab('history')"
+              class="text-xs font-semibold py-2.5 px-3 border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors ml-auto flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>Evaluation History & CSV</span>
+      </button>
+    </div>
+
+    <!-- Modal Body (Scrollable) -->
+    <div class="p-4 overflow-y-auto flex flex-col gap-4 text-xs" style="min-height:0;">
+
+      <!-- Controls & Input Panel -->
+      <div id="evalInputContainer" class="card2 p-3.5 flex flex-col gap-3">
+        <!-- Option A: Quick Count Inputs -->
+        <div id="evalSectionQuick" class="flex flex-col gap-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="font-bold text-xs text-blue-600 dark:text-blue-400">Option A — Verified Fingerling Count</span>
+            <span class="text-[11px]" style="color:var(--muted);">Compare automated model detections vs. manual/actual fingerling count</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[10px] uppercase font-bold mb-1.5" style="color:var(--muted);">Actual Ground Truth Count *</label>
+              <input type="number" id="evalQuickActualCount" min="0" placeholder="e.g. 50 fingerlings"
+                     class="w-full text-xs px-3 py-2 rounded-lg outline-none font-bold"
+                     style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="block text-[10px] uppercase font-bold" style="color:var(--muted);">Image Source</label>
+                <span id="evalSourceModeBadge" class="text-[9.5px] font-mono font-semibold" style="color:var(--accent);">Current Cached</span>
+              </div>
+              <div class="flex flex-col gap-2">
+                <!-- Source Mode Pill Toggle -->
+                <div class="flex items-center gap-1.5 p-1 rounded-lg border" style="background:var(--card2); border-color:var(--border);">
+                  <button type="button" id="btnSourceCached" onclick="setOptionASource('cached')"
+                          class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex items-center justify-center gap-1.5"
+                          style="background:var(--accent); color:white;">
+                    <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    <span>Current Cached</span>
+                  </button>
+                  <button type="button" id="btnSourceUpload" onclick="setOptionASource('upload')"
+                          class="flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all flex items-center justify-center gap-1.5 hover:opacity-80"
+                          style="background:transparent; color:var(--muted);">
+                    <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                    <span>Change / Upload</span>
+                  </button>
+                </div>
+
+                <!-- Cached Photo Display Card -->
+                <div id="optionACachedDisplay" class="flex items-center justify-between px-3 py-2 rounded-lg border min-w-0" style="background:var(--bg3); border-color:var(--border);">
+                  <div class="flex items-center gap-2 min-w-0 flex-1">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 flex-none shadow-[0_0_6px_#34d399]"></span>
+                    <span id="evalCachedName" class="text-xs truncate font-mono" style="color:var(--text);" title="Cached Image">No image cached yet</span>
+                  </div>
+                  <button type="button" onclick="setOptionASource('upload'); document.getElementById('evalQuickFileInput').click();"
+                          class="inline-flex items-center gap-1 text-[11px] font-semibold hover:underline ml-2 flex-none" style="color:var(--accent);" title="Select a different photo">
+                    <span>Change Photo ↗</span>
+                  </button>
+                </div>
+
+                <!-- Upload New Photo Display Card -->
+                <div id="optionAUploadDisplay" class="hidden flex items-center gap-2 min-w-0">
+                  <button type="button" onclick="document.getElementById('evalQuickFileInput').click()"
+                          class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95 shadow-sm flex-none"
+                          style="background:var(--bg3); color:var(--text); border:1px solid var(--border);">
+                    <svg class="w-3.5 h-3.5 text-blue-400 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                    <span>Browse Photo...</span>
+                  </button>
+                  <span id="evalSelectedFileName" class="text-xs truncate flex-1 font-mono min-w-0 px-2.5 py-1.5 rounded border" style="background:var(--card2); border-color:var(--border); color:var(--text); opacity:0.85;">No file selected</span>
+                  <input type="file" id="evalQuickFileInput" accept="image/*" class="hidden" onchange="onEvalFileSelected(this.files[0])" />
+                </div>
+                <input type="hidden" id="evalQuickUseCachedHidden" value="true" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Option B: YOLO .txt Inputs -->
+        <div id="evalSectionYolo" class="hidden flex flex-col gap-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="font-bold text-xs text-indigo-600 dark:text-indigo-400">Option B — YOLO Bounding Box Annotations (.txt)</span>
+            <span class="text-[11px]" style="color:var(--muted);">Evaluates spatial IoU matching (IoU ≥ 0.5) against ground-truth bounding boxes</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[10px] uppercase font-bold mb-1.5" style="color:var(--muted);">Image File (.jpg, .png)</label>
+              <div class="flex items-center gap-2 min-w-0">
+                <button type="button" onclick="document.getElementById('evalYoloImageInput').click()"
+                        class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95 shadow-sm flex-none"
+                        style="background:var(--bg3); color:var(--text); border:1px solid var(--border);">
+                  <svg class="w-3.5 h-3.5 text-blue-400 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  <span>Browse Image...</span>
+                </button>
+                <span id="evalYoloImageName" class="text-xs truncate flex-1 font-mono min-w-0 px-2.5 py-1.5 rounded border" style="background:var(--card2); border-color:var(--border); color:var(--text); opacity:0.85;">Use Cached or Select File</span>
+                <input type="file" id="evalYoloImageInput" accept="image/*" class="hidden" onchange="onYoloImageSelected(this.files[0])" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-[10px] uppercase font-bold mb-1.5" style="color:var(--muted);">YOLO Annotation File (.txt) *</label>
+              <div class="flex items-center gap-2 min-w-0">
+                <button type="button" onclick="document.getElementById('evalYoloTxtInput').click()"
+                        class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all hover:opacity-90 active:scale-95 shadow-sm flex-none"
+                        style="background:var(--bg3); color:var(--text); border:1px solid var(--border);">
+                  <svg class="w-3.5 h-3.5 text-indigo-400 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                  <span>Browse Annotation...</span>
+                </button>
+                <span id="evalYoloTxtName" class="text-xs truncate flex-1 font-mono min-w-0 px-2.5 py-1.5 rounded border" style="background:var(--card2); border-color:var(--border); color:var(--text); opacity:0.85;">No .txt file selected</span>
+                <input type="file" id="evalYoloTxtInput" accept=".txt" class="hidden" onchange="onYoloTxtSelected(this.files[0])" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Shared Parameters: Models, Conf, IoU -->
+        <div id="evalSharedParams" class="pt-2 border-t flex flex-wrap items-center justify-between gap-3" style="border-color:var(--border);">
+          <div class="flex flex-wrap items-center gap-3">
+            <div>
+              <label class="text-[10px] uppercase font-bold block" style="color:var(--muted);">Confidence</label>
+              <input id="evalModalConf" type="number" value="0.50" step="0.05" min="0.05" max="0.95"
+                     class="w-16 text-xs px-2 py-1 rounded outline-none font-bold"
+                     style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+            </div>
+            <div>
+              <label class="text-[10px] uppercase font-bold block" style="color:var(--muted);">Overlap IoU</label>
+              <input id="evalModalIou" type="number" value="0.50" step="0.05" min="0.1" max="0.9"
+                     class="w-16 text-xs px-2 py-1 rounded outline-none font-bold"
+                     style="background:var(--bg3); color:var(--text); border:1px solid var(--border);" />
+            </div>
+            <div>
+              <label class="text-[10px] uppercase font-bold block" style="color:var(--muted);">Evaluate Models</label>
+              <div id="evalModalModelChecks" class="flex items-center gap-2 text-xs">
+                <!-- Populated dynamically with active models -->
+              </div>
+            </div>
+          </div>
+
+          <button id="btnRunAcademicEval" onclick="runSampleEvaluation()"
+                  class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg font-bold text-xs text-white shadow-lg transition-all hover:opacity-90 active:scale-95"
+                  style="background:linear-gradient(135deg, #2563eb, #4f46e5);">
+            <svg class="w-4 h-4 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+            <span id="btnRunAcademicEvalText">Calculate Academic Metrics</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Evaluation Results Panel -->
+      <div id="evalResultsPanel" class="hidden flex flex-col gap-4">
+        <!-- Academic KPI Cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <!-- F1-Score -->
+          <div class="card2 p-3 text-center" style="border:1px solid rgba(99,102,241,0.4); background:rgba(99,102,241,0.08);">
+            <span class="text-[10px] uppercase font-bold block text-indigo-300">Harmonic Mean (F1)</span>
+            <div id="cardF1" class="text-2xl font-black text-indigo-400 my-0.5">0.0000</div>
+            <span id="cardF1Badge" class="text-[9.5px] px-2 py-0.5 rounded-full font-bold inline-block" style="background:#6366f122; color:#a5b4fc;">F1-Score</span>
+          </div>
+          <!-- Precision -->
+          <div class="card2 p-3 text-center" style="border:1px solid rgba(34,197,94,0.4); background:rgba(34,197,94,0.06);">
+            <span class="text-[10px] uppercase font-bold block text-emerald-300">Precision (TP / (TP + FP))</span>
+            <div id="cardPrecision" class="text-2xl font-black text-emerald-400 my-0.5">0.0%</div>
+            <span class="text-[9.5px] text-emerald-300/80">False Alarm Suppression</span>
+          </div>
+          <!-- Recall -->
+          <div class="card2 p-3 text-center" style="border:1px solid rgba(59,130,246,0.4); background:rgba(59,130,246,0.06);">
+            <span class="text-[10px] uppercase font-bold block text-blue-300">Recall (TP / (TP + FN))</span>
+            <div id="cardRecall" class="text-2xl font-black text-blue-400 my-0.5">0.0%</div>
+            <span class="text-[9.5px] text-blue-300/80">Fingerling Sensitivity</span>
+          </div>
+          <!-- Counting Errors MAE & MAPE -->
+          <div class="card2 p-3 text-center" style="border:1px solid rgba(245,158,11,0.4); background:rgba(245,158,11,0.06);">
+            <span class="text-[10px] uppercase font-bold block text-amber-300">Counting Error (MAE / MAPE)</span>
+            <div id="cardError" class="text-2xl font-black text-amber-400 my-0.5">0.0</div>
+            <span id="cardMape" class="text-[9.5px] text-amber-300/80">MAPE: 0.0%</span>
+          </div>
+        </div>
+
+        <!-- Visual Confusion Matrix & Count Balance -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <!-- 2x2 Visual Confusion Matrix -->
+          <div class="card2 p-3.5 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                  <span>Visual Confusion Matrix</span>
+                </h4>
+                <span id="cmModeBadge" class="text-[9.5px] px-2 py-0.5 rounded font-mono" style="background:var(--bg3); color:var(--muted);">IoU ≥ 0.5</span>
+              </div>
+              <!-- 2x2 Grid -->
+              <div class="grid grid-cols-2 gap-2 text-center my-2">
+                <!-- True Positive -->
+                <div class="p-2.5 rounded-xl border" style="background:#22c55e14; border-color:#22c55e44;">
+                  <span class="block text-[9.5px] uppercase font-bold text-emerald-400">True Positive (TP)</span>
+                  <span id="cmTP" class="text-2xl font-black text-emerald-400">0</span>
+                  <span class="block text-[9px] text-emerald-300/70 mt-0.5">Correct Fingerling Detection</span>
+                </div>
+                <!-- False Positive -->
+                <div class="p-2.5 rounded-xl border" style="background:#f59e0b14; border-color:#f59e0b44;">
+                  <span class="block text-[9.5px] uppercase font-bold text-amber-400">False Positive (FP)</span>
+                  <span id="cmFP" class="text-2xl font-black text-amber-400">0</span>
+                  <span class="block text-[9px] text-amber-300/70 mt-0.5">Overdetected / Noise</span>
+                </div>
+                <!-- False Negative -->
+                <div class="p-2.5 rounded-xl border" style="background:#ef444414; border-color:#ef444444;">
+                  <span class="block text-[9.5px] uppercase font-bold text-rose-400">False Negative (FN)</span>
+                  <span id="cmFN" class="text-2xl font-black text-rose-400">0</span>
+                  <span class="block text-[9px] text-rose-300/70 mt-0.5">Missed Fingerlings</span>
+                </div>
+                <!-- True Negative -->
+                <div class="p-2.5 rounded-xl border" style="background:rgba(148,163,184,0.06); border-color:var(--border);">
+                  <span class="block text-[9.5px] uppercase font-bold text-slate-400">True Negative (TN)</span>
+                  <span id="cmTN" class="text-2xl font-black text-slate-400">N/A</span>
+                  <span class="block text-[9px] text-slate-500 mt-0.5">Background in Object Detection</span>
+                </div>
+              </div>
+            </div>
+            <!-- Formula Legend -->
+            <div class="text-[9.5px] font-mono pt-2 border-t flex flex-wrap justify-between gap-1 text-slate-400" style="border-color:var(--border);">
+              <span>Precision = TP/(TP+FP)</span>
+              <span>Recall = TP/(TP+FN)</span>
+              <span>F1 = 2PR/(P+R)</span>
+            </div>
+          </div>
+
+          <!-- Count Balance & Model Consensus -->
+          <div class="card2 p-3.5 flex flex-col justify-between">
+            <div>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">Fingerling Count Discrepancy</h4>
+              <div class="flex items-center justify-around text-center py-3 rounded-xl border" style="background:var(--bg3); border-color:var(--border);">
+                <div>
+                  <span class="text-[10px] uppercase font-bold block" style="color:var(--muted);">Automated Predicted</span>
+                  <span id="evalPredCount" class="text-2xl font-black text-blue-400">0</span>
+                  <span class="text-[9px] text-slate-400">Model Output</span>
+                </div>
+                <div class="text-lg font-bold text-slate-500">vs</div>
+                <div>
+                  <span class="text-[10px] uppercase font-bold block" style="color:var(--muted);">Ground Truth</span>
+                  <span id="evalActualCount" class="text-2xl font-black text-emerald-400">0</span>
+                  <span class="text-[9px] text-slate-400">Verified Target</span>
+                </div>
+              </div>
+              <div id="evalDiscrepancyBar" class="mt-3 p-2.5 rounded-lg flex items-center justify-between text-xs" style="background:var(--card2); border:1px solid var(--border);">
+                <span class="font-medium text-slate-300">Accuracy Score:</span>
+                <span id="evalAccuracyScore" class="font-mono font-bold text-emerald-400">0.0%</span>
+              </div>
+            </div>
+            <div class="text-[10px] text-slate-400 mt-2">
+              💡 Evaluated runs are automatically logged to SQLite for thesis cross-validation.
+            </div>
+          </div>
+        </div>
+
+        <!-- Comparative Multi-Model Breakdown Table -->
+        <div>
+          <h4 class="text-xs font-bold uppercase tracking-wider mb-2 text-slate-300">Side-by-Side Model Benchmarking (This Sample)</h4>
+          <div class="card2 overflow-auto">
+            <table class="bench-table w-full text-left border-collapse text-xs">
+              <thead>
+                <tr>
+                  <th class="px-3 py-2">Model</th>
+                  <th class="px-3 py-2">Precision</th>
+                  <th class="px-3 py-2">Recall</th>
+                  <th class="px-3 py-2">F1-Score</th>
+                  <th class="px-3 py-2">MAE</th>
+                  <th class="px-3 py-2">MAPE (%)</th>
+                  <th class="px-3 py-2">TP</th>
+                  <th class="px-3 py-2">FP</th>
+                  <th class="px-3 py-2">FN</th>
+                  <th class="px-3 py-2">Latency</th>
+                </tr>
+              </thead>
+              <tbody id="evalModelTableBody">
+                <tr><td colspan="10" class="px-3 py-3 text-center text-slate-500">No results yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Historical Academic Benchmarks Panel -->
+      <div id="evalHistoryPanel" class="hidden flex flex-col gap-3">
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-xs text-slate-300">Saved Evaluation Runs (SQLite: evaluation_benchmarks)</span>
+          <div class="flex items-center gap-2">
+            <a href="/api/evaluation-benchmarks/export/csv"
+               class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-bold transition-all hover:opacity-90 shadow"
+               style="background:var(--success); color:white;">
+              <svg class="w-3.5 h-3.5 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>
+              </svg>
+              <span>Export Thesis CSV</span>
+            </a>
+            <button onclick="clearEvalBenchmarks()" class="text-xs px-2.5 py-1.5 rounded-lg transition-all"
+                    style="background:#ef444418; color:#ef4444; border:1px solid #ef444433;">Clear</button>
+          </div>
+        </div>
+        <div class="card2 overflow-auto rounded-lg" style="max-height:350px;">
+          <table class="bench-table w-full text-left border-collapse text-xs">
+            <thead style="position:sticky; top:0; background:var(--card2); z-index:5;">
+              <tr>
+                <th class="px-2.5 py-2">ID</th>
+                <th class="px-2.5 py-2">Timestamp</th>
+                <th class="px-2.5 py-2">Model</th>
+                <th class="px-2.5 py-2">Actual</th>
+                <th class="px-2.5 py-2">Pred</th>
+                <th class="px-2.5 py-2">F1-Score</th>
+                <th class="px-2.5 py-2">Precision</th>
+                <th class="px-2.5 py-2">Recall</th>
+                <th class="px-2.5 py-2">MAE</th>
+                <th class="px-2.5 py-2">MAPE</th>
+                <th class="px-2.5 py-2">TP / FP / FN</th>
+              </tr>
+            </thead>
+            <tbody id="evalHistoryTableBody">
+              <tr><td colspan="11" class="px-3 py-4 text-center text-slate-500">No benchmark runs saved yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
 </div>
 
 <!-- ═══════════════════════════════════ TOAST -->
@@ -690,6 +1319,12 @@ const S = {
   allRecords:          [],
   onTelemetryReceived: null,
   previewAnimFrame:    null,
+  // Academic Evaluation & In-Memory Cache State
+  hasCachedImage:      false,
+  cachedFilename:      null,
+  evalModalTab:        'quick',
+  evalCachedFile:      null,
+  allModels:           [],
 };
 
 const SVG_ICONS = {
@@ -704,17 +1339,17 @@ const SVG_ICONS = {
 
 // ═══════════════════════════════════════════════════ INIT
 document.addEventListener('DOMContentLoaded', () => {
-  applyStoredTheme();
-  syncSlidersImmediately();
-  syncSourceImmediately();
-  loadConfig();
-  loadModels();
-  initCameraDevices();
-  loadRecords();
-  refreshAnalytics();
-  setInterval(refreshAnalytics, 15000);
-  initCharts();
-  updateGauge(0, '#22c55e');
+  try { applyStoredTheme(); } catch(e) { console.warn('applyStoredTheme error:', e); }
+  try { syncSlidersImmediately(); } catch(e) { console.warn('syncSlidersImmediately error:', e); }
+  try { syncSourceImmediately(); } catch(e) { console.warn('syncSourceImmediately error:', e); }
+  try { loadConfig(); } catch(e) { console.warn('loadConfig error:', e); }
+  try { loadModels(); } catch(e) { console.warn('loadModels error:', e); }
+  try { initCameraDevices(); } catch(e) { console.warn('initCameraDevices error:', e); }
+  try { loadRecords(); } catch(e) { console.warn('loadRecords error:', e); }
+  try { refreshAnalytics(); } catch(e) { console.warn('refreshAnalytics error:', e); }
+  setInterval(() => { try { refreshAnalytics(); } catch(e){} }, 15000);
+  try { initCharts(); } catch(e) { console.warn('initCharts error:', e); }
+  try { updateGauge(0, '#22c55e'); } catch(e) { console.warn('updateGauge error:', e); }
 });
 
 // ═══════════════════════════════════════════════════ CAMERA ENUMERATION
@@ -765,7 +1400,8 @@ function setAnalyticsState(state) {
     videoCard.style.display = 'none';
     analyticsCard.classList.add('analytics-maximized');
     analyticsCard.classList.remove('analytics-minimized');
-    analyticsBody.style.display = 'block';
+    analyticsBody.style.display = 'flex';
+    analyticsBody.style.flexDirection = 'column';
     if (btnMax) { btnMax.innerHTML = SVG_ICONS.restore; btnMax.title = 'Restore normal view'; }
     if (btnMin) { btnMin.innerHTML = SVG_ICONS.minimize; btnMin.title = 'Minimize analytics panel'; }
   } else if (state === 'minimized') {
@@ -782,7 +1418,8 @@ function setAnalyticsState(state) {
     videoCard.classList.remove('video-expanded');
     analyticsCard.classList.remove('analytics-maximized');
     analyticsCard.classList.remove('analytics-minimized');
-    analyticsBody.style.display = 'block';
+    analyticsBody.style.display = 'flex';
+    analyticsBody.style.flexDirection = 'column';
     if (btnMax) { btnMax.innerHTML = SVG_ICONS.maximize; btnMax.title = 'Maximize analytics panel'; }
     if (btnMin) { btnMin.innerHTML = SVG_ICONS.minimize; btnMin.title = 'Minimize analytics panel'; }
   }
@@ -816,10 +1453,19 @@ function toggleTheme() {
   html.setAttribute('data-theme', newTheme);
   const btn = document.getElementById('themeToggle');
   if (btn) btn.innerHTML = newTheme === 'dark' ? SVG_ICONS.moon : SVG_ICONS.sun;
-  localStorage.setItem('theme', newTheme);
+  try {
+    localStorage.setItem('theme', newTheme);
+  } catch(e) {
+    console.warn('localStorage theme save failed:', e);
+  }
 }
 function applyStoredTheme() {
-  const t = localStorage.getItem('theme') || 'dark';
+  let t = 'dark';
+  try {
+    t = localStorage.getItem('theme') || 'dark';
+  } catch(e) {
+    console.warn('localStorage theme read failed:', e);
+  }
   document.documentElement.setAttribute('data-theme', t);
   const btn = document.getElementById('themeToggle');
   if (btn) btn.innerHTML = t === 'dark' ? SVG_ICONS.moon : SVG_ICONS.sun;
@@ -918,6 +1564,13 @@ async function loadModels() {
       div.innerHTML = '<p class="text-xs italic" style="color:var(--muted);">No .pt files in /models</p>';
       return;
     }
+    S.allModels = d.available;
+    try {
+      const bTable = document.getElementById('benchTableBody');
+      if (!bTable || bTable.innerHTML.includes('Awaiting scan') || !bTable.children.length) {
+        renderBenchmarkResults([]);
+      }
+    } catch(e) {}
     d.available.forEach(name => {
       const active = d.active.includes(name);
       div.innerHTML += `
@@ -1036,14 +1689,19 @@ function onSliderChange(type, val) {
     S.iou = val / 100;
     document.getElementById('iouVal').textContent = `${val}%`;
   }
-  S._sliderTimer = setTimeout(() => {
+  S._sliderTimer = setTimeout(async () => {
     if (S.ws?.readyState === WebSocket.OPEN) {
       S.ws.send(JSON.stringify({ type: type === 'conf' ? 'set_conf' : 'set_iou', value: S[type] }));
     } else {
       fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({[type]: S[type]}) });
     }
-  }, 200);
+
+    // Dynamic Slider Tuning: If source is image (or image is cached in memory), reprocess instantly
+    if (S.hasCachedImage || S.source === 'image') {
+      await reprocessCachedImage();
+    }
+  }, 160);
 }
 
 function setConf(v) {
@@ -1255,142 +1913,204 @@ async function startRtsp() {
   toast(`Connecting to stream: ${url}...`, 'info');
 }
 
+// ── Drag & Drop handlers on Canvas ──
+function onCanvasDragOver(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const overlay = document.getElementById('canvasDropOverlay');
+  if (overlay) overlay.classList.remove('hidden');
+}
+
+function onCanvasDragLeave(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const overlay = document.getElementById('canvasDropOverlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function onCanvasDrop(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const overlay = document.getElementById('canvasDropOverlay');
+  if (overlay) overlay.classList.add('hidden');
+
+  const files = e.dataTransfer?.files;
+  if (!files || !files.length) return;
+  const file = files[0];
+  const name = file.name.toLowerCase();
+
+  if (file.type.startsWith('image/') || /\.(jpg|jpeg|png|bmp|webp)$/i.test(name)) {
+    const sel = document.getElementById('sourceSelect');
+    if (sel) sel.value = 'image';
+    syncSourceImmediately();
+    uploadImageFile(file);
+  } else if (file.type.startsWith('video/') || /\.(mp4|avi|mov|mkv|webm)$/i.test(name)) {
+    const sel = document.getElementById('sourceSelect');
+    if (sel) sel.value = 'video';
+    syncSourceImmediately();
+    uploadVideoFile(file);
+  } else {
+    toast('Unsupported file type. Please drop an image (.jpg, .png) or video (.mp4) file.', 'warning');
+  }
+}
+
 // ── Image upload ──
 function startImageUpload() {
   const input = document.getElementById('fileInput');
   input.accept = 'image/*';
-  // Reset value so same file can be re-selected
   input.value = '';
-  input.onchange = async e => {
+  input.onchange = e => {
     const file = e.target.files[0];
-    if (!file) return;
-
-    const uploadBtn = document.getElementById('uploadBtn');
-    if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.style.opacity = '0.6'; }
-    const fd = new FormData();
-    fd.append('file', file);
-    toast('Running inference on image...', 'info');
-    try {
-      const r = await fetch('/api/upload/image', {method:'POST', body: fd});
-      const d = await r.json();
-      if (!r.ok) { toast(d.detail || 'Upload error', 'error'); return; }
-
-      // Show annotated image
-      const canvas = document.getElementById('uploadCanvas');
-      const ctx    = canvas.getContext('2d');
-      const img    = new Image();
-      img.onload = () => {
-        canvas.width  = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        ctx.drawImage(img, 0, 0);
-        canvas.style.display = 'block';
-        document.getElementById('videoCanvas').style.display = 'none';
-        document.getElementById('canvasPlaceholder').style.display = 'none';
-      };
-      img.src = 'data:image/jpeg;base64,' + d.annotated_frame;
-
-      updateKPIs({
-        live_count:  d.count,
-        count_in:    0,
-        count_out:   0,
-        fps:         0,
-        density_pct: d.density_pct,
-        status:      d.status,
-        avg_conf:    d.avg_conf,
-        frame_idx:   1,
-      });
-      toast(`Detected ${d.count} fingerling(s) — Confidence: ${(d.avg_conf*100).toFixed(1)}%`, 'success');
-      loadRecords();
-      refreshAnalytics();
-    } catch(err) {
-      toast('Upload error: ' + err.message, 'error');
-    } finally {
-      if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.style.opacity = '1'; }
-    }
+    if (file) uploadImageFile(file);
   };
   input.click();
+}
+
+async function uploadImageFile(file) {
+  if (!file) return;
+  const uploadBtn = document.getElementById('uploadBtn');
+  if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.style.opacity = '0.6'; }
+  const fd = new FormData();
+  fd.append('file', file);
+  toast(`Running multi-model inference on ${file.name}...`, 'info');
+
+  try {
+    const r = await fetch('/api/upload/image', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) { toast(d.detail || 'Upload error', 'error'); return; }
+
+    // Show annotated image
+    const canvas = document.getElementById('uploadCanvas');
+    const ctx    = canvas.getContext('2d');
+    const img    = new Image();
+    img.onload = () => {
+      canvas.width  = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.drawImage(img, 0, 0);
+      canvas.style.display = 'block';
+      document.getElementById('videoCanvas').style.display = 'none';
+      document.getElementById('canvasPlaceholder').style.display = 'none';
+    };
+    img.src = 'data:image/jpeg;base64,' + d.annotated_frame;
+
+    updateKPIs({
+      live_count:  d.count,
+      count_in:    0,
+      count_out:   0,
+      fps:         0,
+      density_pct: d.density_pct,
+      status:      d.status,
+      avg_conf:    d.avg_conf,
+      frame_idx:   1,
+    });
+
+    // Record in-memory cached state for dynamic slider tuning
+    S.hasCachedImage = true;
+    S.cachedFilename = d.filename || file.name;
+    const cachedBox = document.getElementById('cachedImageIndicator');
+    if (cachedBox) {
+      cachedBox.classList.remove('hidden');
+      const nameEl = document.getElementById('cachedFilenameText');
+      if (nameEl) nameEl.textContent = S.cachedFilename;
+    }
+    const evalCachedName = document.getElementById('evalCachedName');
+    if (evalCachedName) evalCachedName.textContent = S.cachedFilename;
+
+    toast(`Detected ${d.count} fingerling(s) — Saved to Records (#${d.event_id})`, 'success');
+    await loadRecords();
+    refreshAnalytics();
+    // Automatically switch to Records tab so the user sees the newly saved record immediately
+    switchTab('records');
+  } catch (err) {
+    toast('Upload error: ' + err.message, 'error');
+  } finally {
+    if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.style.opacity = '1'; }
+  }
 }
 
 // ── Video upload ──
 function startVideoUpload() {
   const input = document.getElementById('fileInput');
   input.accept = 'video/*';
-  // Reset value so same file can be re-selected
   input.value = '';
-  input.onchange = async e => {
+  input.onchange = e => {
     const file = e.target.files[0];
-    if (!file) return;
-
-    const uploadBtn = document.getElementById('uploadBtn');
-    if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.style.opacity = '0.6'; }
-
-    const fd = new FormData();
-    fd.append('file', file);
-    document.getElementById('videoProgressBar').classList.remove('hidden');
-    document.getElementById('canvasPlaceholder').style.display = 'none';
-    toast('Processing video... this may take a while', 'info');
-
-    try {
-      const resp = await fetch('/api/upload/video', {method:'POST', body: fd});
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({detail: 'Unknown error'}));
-        toast(err.detail || 'Upload failed', 'error');
-        return;
-      }
-      const reader = resp.body.getReader();
-      const dec    = new TextDecoder();
-      let buf = '';
-
-      while (true) {
-        const {done, value} = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, {stream: true});
-        const lines = buf.split('\n\n');
-        buf = lines.pop();
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const d = JSON.parse(line.slice(6));
-          if (d.done) {
-            document.getElementById('videoProgressBar').classList.add('hidden');
-            toast(`Video complete — ${d.total_frames} frames processed`, 'success');
-            refreshAnalytics();
-            loadRecords();
-            break;
-          }
-          // Update progress
-          document.getElementById('videoProgressPct').textContent = d.progress + '%';
-          document.getElementById('videoProgressFill').style.width = d.progress + '%';
-          document.getElementById('videoProgressLabel').textContent =
-            `Frame ${d.frame_idx}/${d.total} · ${d.live_count} detections`;
-
-          // Show thumbnail
-          if (d.thumb) {
-            const canvas = document.getElementById('uploadCanvas');
-            const ctx    = canvas.getContext('2d');
-            const img    = new Image();
-            img.onload = () => { canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; ctx.drawImage(img, 0, 0); };
-            img.src = 'data:image/jpeg;base64,' + d.thumb;
-            canvas.style.display = 'block';
-            document.getElementById('videoCanvas').style.display = 'none';
-            document.getElementById('canvasPlaceholder').style.display = 'none';
-          }
-
-          const densityPct = d.density_pct ?? (d.live_count != null ? ((d.live_count / Math.max(1, S.capacity)) * 100) : 0);
-          updateKPIs({
-            live_count: d.live_count, count_in: 0, count_out: 0,
-            fps: d.fps || 0, density_pct: densityPct, status: d.status,
-            avg_conf: d.avg_conf, frame_idx: d.frame_idx,
-          });
-        }
-      }
-    } catch(err) {
-      toast('Video upload error: ' + err.message, 'error');
-    } finally {
-      if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.style.opacity = '1'; }
-      document.getElementById('videoProgressBar').classList.add('hidden');
-    }
+    if (file) uploadVideoFile(file);
   };
   input.click();
+}
+
+async function uploadVideoFile(file) {
+  if (!file) return;
+  const uploadBtn = document.getElementById('uploadBtn');
+  if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.style.opacity = '0.6'; }
+
+  const fd = new FormData();
+  fd.append('file', file);
+  document.getElementById('videoProgressBar').classList.remove('hidden');
+  document.getElementById('canvasPlaceholder').style.display = 'none';
+  toast(`Processing video ${file.name}...`, 'info');
+
+  try {
+    const resp = await fetch('/api/upload/video', { method: 'POST', body: fd });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: 'Unknown error' }));
+      toast(err.detail || 'Upload failed', 'error');
+      return;
+    }
+    const reader = resp.body.getReader();
+    const dec    = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const d = JSON.parse(line.slice(6));
+        if (d.done) {
+          document.getElementById('videoProgressBar').classList.add('hidden');
+          toast(`Video complete — ${d.total_frames} frames processed & saved to Records!`, 'success');
+          refreshAnalytics();
+          await loadRecords();
+          switchTab('records');
+          break;
+        }
+        // Update progress
+        document.getElementById('videoProgressPct').textContent = d.progress + '%';
+        document.getElementById('videoProgressFill').style.width = d.progress + '%';
+        document.getElementById('videoProgressLabel').textContent =
+          `Frame ${d.frame_idx}/${d.total} · ${d.live_count} detections`;
+
+        // Show thumbnail
+        if (d.thumb) {
+          const canvas = document.getElementById('uploadCanvas');
+          const ctx    = canvas.getContext('2d');
+          const img    = new Image();
+          img.onload = () => { canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; ctx.drawImage(img, 0, 0); };
+          img.src = 'data:image/jpeg;base64,' + d.thumb;
+          canvas.style.display = 'block';
+          document.getElementById('videoCanvas').style.display = 'none';
+          document.getElementById('canvasPlaceholder').style.display = 'none';
+        }
+
+        const densityPct = d.density_pct ?? (d.live_count != null ? ((d.live_count / Math.max(1, S.capacity)) * 100) : 0);
+        updateKPIs({
+          live_count: d.live_count, count_in: 0, count_out: 0,
+          fps: d.fps || 0, density_pct: densityPct, status: d.status,
+          avg_conf: d.avg_conf, frame_idx: d.frame_idx,
+        });
+      }
+    }
+  } catch (err) {
+    toast('Video upload error: ' + err.message, 'error');
+  } finally {
+    if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.style.opacity = '1'; }
+    document.getElementById('videoProgressBar').classList.add('hidden');
+  }
 }
 
 // ═══════════════════════════════════════════════════ WEBSOCKET
@@ -1493,11 +2213,14 @@ function updateKPIs(d) {
 }
 
 function updateGauge(pct, col = '#22c55e') {
-  const capped = Math.min(Math.max(parseFloat(pct) || 0, 0), 120);
+  const val = parseFloat(pct) || 0;
+  // Arc is calibrated from 0% (9 o'clock, -180°) to 100% (3 o'clock, 0°)
+  // Cap between 0 and 100 so 100% points precisely to the 100% mark at 3 o'clock (104, 58)
+  const capped = Math.min(Math.max(val, 0), 100);
   const cx = 60, cy = 58, r = 44, needleLen = 38;
 
-  // 0% at 9 o'clock (-180°), 120% at 3 o'clock (0°)
-  const angleRad = (-180 + (capped / 120) * 180) * (Math.PI / 180);
+  // 0% at 9 o'clock (-180°), 100% at 3 o'clock (0°)
+  const angleRad = (-180 + (capped / 100) * 180) * (Math.PI / 180);
   const nx2 = (cx + needleLen * Math.cos(angleRad)).toFixed(2);
   const ny2 = (cy + needleLen * Math.sin(angleRad)).toFixed(2);
 
@@ -1518,7 +2241,7 @@ function updateGauge(pct, col = '#22c55e') {
   }
 
   const startAngle = -180;
-  const endAngle   = startAngle + (capped / 120) * 180;
+  const endAngle   = startAngle + (capped / 100) * 180;
   const [sx, sy] = polarToXY(startAngle);
   const [ex, ey] = polarToXY(endAngle);
   const largeArc = (endAngle - startAngle) > 180 ? 1 : 0;
@@ -1591,15 +2314,18 @@ function initCharts() {
       },
     });
   });
+
+  // Populate baseline model metrics immediately so boxes and charts are never empty
+  try { renderBenchmarkResults([]); } catch(e) {}
 }
 
 // ═══════════════════════════════════════════════════ ANALYTICS REFRESH
 async function refreshAnalytics() {
   try {
     const [summary, ts, hourly] = await Promise.all([
-      fetch('/api/analytics/summary').then(r => r.json()),
-      fetch('/api/analytics/timeseries?limit=120').then(r => r.json()),
-      fetch('/api/analytics/hourly').then(r => r.json()),
+      fetch('/api/stats/summary').then(r => r.json()),
+      fetch('/api/stats/timeseries?limit=120').then(r => r.json()),
+      fetch('/api/stats/hourly').then(r => r.json()),
     ]);
 
     // Sidebar DB summary
@@ -1610,7 +2336,7 @@ async function refreshAnalytics() {
 
     // Trends chart
     const tc = S.charts.trends;
-    if (tc && ts.length) {
+    if (tc && ts && ts.length) {
       tc.data.labels            = ts.map(r => r.slot);
       tc.data.datasets[0].data  = ts.map(r => r.avg_count);
       tc.data.datasets[1].data  = ts.map(r => r.max_count);
@@ -1619,7 +2345,7 @@ async function refreshAnalytics() {
 
     // Hourly chart
     const hc = S.charts.hourly;
-    if (hc && hourly.length) {
+    if (hc && hourly && hourly.length) {
       hc.data.labels           = hourly.map(r => r.hour_slot);
       hc.data.datasets[0].data = hourly.map(r => r.avg_count);
       hc.update('none');
@@ -1631,8 +2357,16 @@ async function refreshAnalytics() {
 // ═══════════════════════════════════════════════════ RECORDS TAB
 async function loadRecords() {
   try {
-    const data = await fetch('/api/analytics/events?limit=500').then(r => r.json());
-    S.allRecords = data || [];
+    let res = await fetch('/api/records?limit=500');
+    if (!res.ok) {
+      res = await fetch('/api/analytics/events?limit=500');
+    }
+    if (!res.ok) {
+      console.warn('loadRecords HTTP error:', res.status);
+      return;
+    }
+    const data = await res.json();
+    S.allRecords = Array.isArray(data) ? data : [];
     renderRecordsTable(S.allRecords);
   } catch(e) {
     console.error('loadRecords error:', e);
@@ -1658,35 +2392,212 @@ function filterRecords(query) {
 function renderRecordsTable(data) {
   const tbody = document.getElementById('recordsBody');
   const badge = document.getElementById('recordsCountBadge');
-  if (badge) badge.textContent = `${data ? data.length : 0} record(s)`;
+  const count = (data && Array.isArray(data)) ? data.length : 0;
+  if (badge) badge.textContent = `${count} record(s)`;
+  const tabBadge = document.getElementById('tabRecordsBadge');
+  if (tabBadge) tabBadge.textContent = count;
 
   if (!tbody) return;
   if (!data || !data.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-xs" style="color:var(--muted);">No records found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="px-3 py-6 text-center text-xs" style="color:var(--muted);">No records found</td></tr>';
     return;
   }
   tbody.innerHTML = data.map(e => {
     const statusCls = e.status_level === 'Optimal' ? '#22c55e' :
                       e.status_level === 'High Density' ? '#f59e0b' : '#ef4444';
-    return `<tr>
-      <td class="px-3 py-2 font-mono text-xs">${e.id}</td>
-      <td class="px-3 py-2 text-xs font-mono">${e.timestamp}</td>
-      <td class="px-3 py-2 text-xs">${e.source}</td>
-      <td class="px-3 py-2 font-semibold">${e.fingerling_count}</td>
-      <td class="px-3 py-2 text-xs">${parseFloat(e.density_pct ?? 0).toFixed(1)}%</td>
-      <td class="px-3 py-2 text-xs font-semibold" style="color:${statusCls};">${e.status_level}</td>
-      <td class="px-3 py-2 text-xs">${e.avg_confidence ? (e.avg_confidence * 100).toFixed(1) + '%' : '—'}</td>
-      <td class="px-3 py-2 text-xs font-mono truncate" style="max-width:120px;" title="${e.model_name}">${e.model_name || '—'}</td>
+    const modelsCount = (e.model_metrics && Array.isArray(e.model_metrics) && e.model_metrics.length) || (e.model_name ? e.model_name.split(',').length : 1);
+    const gtBadge = e.ground_truth_count != null
+      ? `<span class="inline-block font-mono font-bold text-[10px] px-1.5 py-0.5 rounded ml-1.5" style="background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3);" title="Ground Truth Verified">GT: ${e.ground_truth_count}</span>`
+      : '';
+    const density = (e.density_pct != null && !isNaN(e.density_pct)) ? parseFloat(e.density_pct).toFixed(1) : '0.0';
+    const conf = (e.avg_confidence != null && !isNaN(e.avg_confidence)) ? (parseFloat(e.avg_confidence) * 100).toFixed(1) + '%' : '—';
+
+    return `<tr onclick="openRecordModal(${e.id})" class="cursor-pointer transition-colors hover:bg-slate-700/20 group">
+      <td class="px-3 py-2 font-mono text-xs font-bold text-blue-400">#${e.id}</td>
+      <td class="px-3 py-2 text-xs font-mono">${e.timestamp || '—'}</td>
+      <td class="px-3 py-2 text-xs font-medium">${e.source || '—'}</td>
+      <td class="px-3 py-2 font-bold">${e.fingerling_count ?? 0}${gtBadge}</td>
+      <td class="px-3 py-2 text-xs">${density}%</td>
+      <td class="px-3 py-2 text-xs font-semibold" style="color:${statusCls};">${e.status_level || 'Optimal'}</td>
+      <td class="px-3 py-2 text-xs">${conf}</td>
+      <td class="px-3 py-2 text-xs">
+        <span class="inline-flex items-center gap-1 font-mono text-[11px] px-2 py-0.5 rounded-full" style="background:var(--bg3); color:var(--text);">
+          <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+          ${modelsCount} model(s)
+        </span>
+      </td>
+      <td class="px-3 py-2 text-right">
+        <button onclick="event.stopPropagation(); openRecordModal(${e.id})"
+                class="text-xs font-semibold px-2.5 py-1 rounded transition-all hover:scale-105 group-hover:bg-blue-600 group-hover:text-white"
+                style="background:var(--bg3); color:var(--accent);">
+          Inspect ↗
+        </button>
+      </td>
     </tr>`;
   }).join('');
 }
 
 async function clearAllEvents() {
-  if (!confirm('Delete all detection records from the database? This cannot be undone.')) return;
-  await fetch('/api/analytics/events', {method:'DELETE'});
+  if (!confirm('Delete all detection records and reset benchmark scores? This cannot be undone.')) return;
+  await fetch('/api/records', {method:'DELETE'}).catch(() => fetch('/api/analytics/events', {method:'DELETE'}));
+  await fetch('/api/evaluate/results', {method:'DELETE'}).catch(() => {});
   await loadRecords();
   await refreshAnalytics();
-  toast('All records cleared', 'warning');
+  renderBenchmarkResults([]);
+  toast('All records and benchmark scores cleared & reset', 'warning');
+}
+
+// ═══════════════════════════════════════════════════ RECORD INSPECTION MODAL
+async function openRecordModal(eventId) {
+  S.activeModalEventId = eventId;
+  const modal = document.getElementById('recordModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+
+  document.getElementById('modalRecordId').textContent = '#' + eventId;
+  document.getElementById('modalModelTableBody').innerHTML = '<tr><td colspan="6" class="px-3 py-3 text-center" style="color:var(--muted);">Loading details...</td></tr>';
+  document.getElementById('modalBoxTableBody').innerHTML = '<tr><td colspan="4" class="px-2.5 py-2 text-center" style="color:var(--muted);">Loading boxes...</td></tr>';
+
+  try {
+    let res = await fetch(`/api/records/${eventId}`);
+    if (!res.ok) res = await fetch(`/api/analytics/events/${eventId}`);
+    if (!res.ok) {
+      toast('Failed to load record details', 'error');
+      closeRecordModal();
+      return;
+    }
+    const data = await res.json();
+    renderRecordModalContent(data);
+  } catch (err) {
+    console.error('Error opening record modal:', err);
+    toast('Error: ' + err.message, 'error');
+  }
+}
+
+function closeRecordModal() {
+  const modal = document.getElementById('recordModal');
+  if (modal) modal.classList.add('hidden');
+  S.activeModalEventId = null;
+}
+
+// Close modal on Escape or background click
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeRecordModal();
+});
+document.addEventListener('click', (e) => {
+  const modal = document.getElementById('recordModal');
+  if (modal && e.target === modal) closeRecordModal();
+});
+
+function renderRecordModalContent(d) {
+  document.getElementById('modalRecordId').textContent = '#' + d.id;
+  document.getElementById('modalTimestamp').textContent = d.timestamp;
+  document.getElementById('modalCount').textContent = d.fingerling_count;
+  document.getElementById('modalDensity').textContent = parseFloat(d.density_pct || 0).toFixed(1) + '%';
+  document.getElementById('modalSource').textContent = d.source || '—';
+
+  const badge = document.getElementById('modalStatusBadge');
+  badge.textContent = d.status_level;
+  badge.className = 'text-xs font-bold inline-block px-2 py-0.5 rounded-full mt-0.5 ' +
+    (d.status_level === 'Optimal' ? 'badge-optimal' :
+     d.status_level === 'High Density' ? 'badge-high' : 'badge-over');
+
+  document.getElementById('modalGtInput').value = d.ground_truth_count != null ? d.ground_truth_count : '';
+
+  // Render per-model comparison table
+  const tbody = document.getElementById('modalModelTableBody');
+  const metrics = d.model_metrics || [];
+  if (!metrics.length) {
+    tbody.innerHTML = `
+      <tr>
+        <td class="px-3 py-2.5 font-semibold font-mono text-blue-400">${d.model_name || 'Active Models'}</td>
+        <td class="px-3 py-2.5 font-bold">${d.fingerling_count}</td>
+        <td class="px-3 py-2.5 font-mono text-xs">Consensus</td>
+        <td class="px-3 py-2.5">${d.avg_confidence ? (d.avg_confidence * 100).toFixed(1) + '%' : '—'}</td>
+        <td class="px-3 py-2.5 font-mono text-xs">—</td>
+        <td class="px-3 py-2.5 font-semibold font-mono" style="color:#22c55e;">${d.ground_truth_count != null ? (Math.max(0, 100 - Math.abs(d.fingerling_count - d.ground_truth_count) / Math.max(1, d.ground_truth_count) * 100)).toFixed(1) + '%' : '—'}</td>
+      </tr>`;
+  } else {
+    const consensus = d.fingerling_count || (metrics.reduce((acc, m) => acc + (m.count || 0), 0) / metrics.length);
+    tbody.innerHTML = metrics.map((m, idx) => {
+      const colors = ['#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6', '#ef4444'];
+      const col = colors[idx % colors.length];
+      const mName = m.model || m.model_name || 'Model ' + (idx + 1);
+      const diff = m.count - consensus;
+      const diffStr = diff > 0 ? `+${diff}` : (diff < 0 ? `${diff}` : '0');
+      const diffColor = diff === 0 ? '#22c55e' : (Math.abs(diff) <= 2 ? '#f59e0b' : '#ef4444');
+
+      let accStr = '—';
+      if (d.ground_truth_count != null) {
+        const gt = d.ground_truth_count;
+        const err = Math.abs(m.count - gt);
+        const acc = Math.max(0.0, 100.0 - (err / Math.max(1, gt) * 100.0));
+        accStr = `<span class="font-bold font-mono" style="color:${acc >= 90 ? '#22c55e' : acc >= 75 ? '#f59e0b' : '#ef4444'};">${acc.toFixed(1)}% <span class="text-[10px] opacity-80">(err: ${err})</span></span>`;
+      }
+
+      return `
+        <tr class="hover:bg-slate-700/10 transition-colors">
+          <td class="px-3 py-2.5 font-semibold font-mono" style="color:${col};">${mName}</td>
+          <td class="px-3 py-2.5 font-bold text-sm">${m.count}</td>
+          <td class="px-3 py-2.5 font-mono text-xs font-semibold" style="color:${diffColor};">${diffStr}</td>
+          <td class="px-3 py-2.5">${m.avg_conf ? (m.avg_conf * 100).toFixed(1) + '%' : '—'}</td>
+          <td class="px-3 py-2.5 font-mono text-xs">${m.inference_ms != null ? m.inference_ms + ' ms' : '—'}</td>
+          <td class="px-3 py-2.5">${accStr}</td>
+        </tr>`;
+    }).join('');
+  }
+
+  // Render bounding boxes table
+  const boxes = d.boxes || [];
+  const boxBadge = document.getElementById('modalBoxCountBadge');
+  if (boxBadge) boxBadge.textContent = `${boxes.length} box(es)`;
+  const bBody = document.getElementById('modalBoxTableBody');
+  if (!boxes.length) {
+    bBody.innerHTML = '<tr><td colspan="4" class="px-2.5 py-3 text-center" style="color:var(--muted);">No bounding boxes stored for this record</td></tr>';
+  } else {
+    bBody.innerHTML = boxes.slice(0, 100).map((b, i) => `
+      <tr class="hover:bg-slate-700/10">
+        <td class="px-2.5 py-1.5 font-mono text-slate-400">#${i + 1}</td>
+        <td class="px-2.5 py-1.5 font-mono text-xs text-blue-400">${b.model_name || 'detection'}</td>
+        <td class="px-2.5 py-1.5">${(b.confidence * 100).toFixed(1)}%</td>
+        <td class="px-2.5 py-1.5 font-mono text-[10px] text-slate-400">[${Math.round(b.x1)}, ${Math.round(b.y1)}, ${Math.round(b.x2)}, ${Math.round(b.y2)}]</td>
+      </tr>`).join('');
+  }
+}
+
+async function saveRecordGroundTruth() {
+  if (!S.activeModalEventId) return;
+  const input = document.getElementById('modalGtInput');
+  const val = parseInt(input.value);
+  if (isNaN(val) || val < 0) {
+    toast('Please enter a valid non-negative number for ground truth', 'error');
+    return;
+  }
+  try {
+    let res = await fetch(`/api/records/${S.activeModalEventId}/ground-truth`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ground_truth_count: val}),
+    });
+    if (!res.ok) {
+      res = await fetch(`/api/analytics/events/${S.activeModalEventId}/ground-truth`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ground_truth_count: val}),
+      });
+    }
+    if (!res.ok) {
+      const err = await res.json();
+      toast(err.detail || 'Failed to save ground truth', 'error');
+      return;
+    }
+    const updated = await res.json();
+    renderRecordModalContent(updated);
+    loadRecords();
+    toast(`Ground truth (${val}) saved & model accuracies updated!`, 'success');
+  } catch (err) {
+    toast('Error: ' + err.message, 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════ TABS
@@ -1698,6 +2609,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => {
     p.classList.add('hidden');
     p.classList.remove('flex');
+    p.style.display = 'none';
   });
   document.querySelectorAll('.tab-btn').forEach(b => {
     b.classList.remove('active');
@@ -1708,6 +2620,9 @@ function switchTab(name) {
     activePanel.classList.remove('hidden');
     if (name === 'records' || name === 'benchmark') {
       activePanel.classList.add('flex');
+      activePanel.style.display = 'flex';
+    } else {
+      activePanel.style.display = 'block';
     }
   }
   const btn = document.getElementById(`tab-${name}`);
@@ -1716,8 +2631,20 @@ function switchTab(name) {
     btn.style.color = 'var(--accent)';
   }
 
-  if (name === 'records') loadRecords();
-  if (name === 'benchmark') loadLatestResults();
+  // Clear previous records interval if active
+  if (S._recordsInterval) {
+    clearInterval(S._recordsInterval);
+    S._recordsInterval = null;
+  }
+
+  if (name === 'records') {
+    loadRecords();
+    // Live update records table every 4 seconds while on records tab
+    S._recordsInterval = setInterval(loadRecords, 4000);
+  }
+  if (name === 'benchmark') {
+    loadLatestResults();
+  }
 
   setTimeout(() => {
     Object.values(S.charts).forEach(c => c?.resize?.());
@@ -1725,6 +2652,77 @@ function switchTab(name) {
 }
 
 // ═══════════════════════════════════════════════════ BENCHMARK
+function toggleCustomPathSection() {
+  const el = document.getElementById('manualPathSection');
+  if (el) el.classList.toggle('hidden');
+}
+
+async function runBenchmarkFromRecords() {
+  const btn = document.getElementById('evalRecordsBtn');
+  btn.disabled = true;
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = `${SVG_ICONS.spinner} <span>Aggregating...</span>`;
+  toast('Benchmarking models across saved records...', 'info');
+
+  try {
+    const r = await fetch('/api/evaluate/from-records', {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) {
+      toast(d.detail || 'Record benchmark error', 'error');
+      return;
+    }
+    renderBenchmarkResults(d.results);
+    if (d.results && d.results.some(r => r.total_images > 0)) {
+      toast(`Benchmark complete — evaluated ${d.results.length} model(s) across stored records`, 'success');
+    } else {
+      toast('No stored detection records found yet. Benchmark metrics reset to 0.00%.', 'info');
+    }
+  } catch (e) {
+    toast('Benchmark error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
+
+async function uploadDatasetZip(file) {
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.zip')) {
+    toast('Please select a valid .zip dataset file', 'error');
+    return;
+  }
+  const btn = document.getElementById('uploadZipBtn');
+  btn.disabled = true;
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = `${SVG_ICONS.spinner} <span>Evaluating...</span>`;
+  toast(`Evaluating uploaded dataset: ${file.name}...`, 'info');
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('conf', document.getElementById('evalConf').value);
+  formData.append('iou_thresh', document.getElementById('evalIou').value);
+
+  try {
+    const r = await fetch('/api/evaluate/upload-dataset', {
+      method: 'POST',
+      body: formData,
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      toast(d.detail || 'Dataset benchmark error', 'error');
+      return;
+    }
+    renderBenchmarkResults(d.results);
+    toast(`Dataset evaluation complete — ${d.results.length} model(s) evaluated`, 'success');
+  } catch (e) {
+    toast('Dataset evaluation error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    document.getElementById('datasetZipInput').value = '';
+  }
+}
+
 async function runBenchmark() {
   const dataset  = document.getElementById('evalDataset').value.trim();
   const gt_csv   = document.getElementById('evalCsv').value.trim() || null;
@@ -1732,13 +2730,13 @@ async function runBenchmark() {
   const iou      = parseFloat(document.getElementById('evalIou').value);
   const models   = [...document.querySelectorAll('.model-checkbox:checked')].map(c => c.value);
 
-  if (!dataset && !gt_csv) { toast('Enter a dataset path or GT CSV path', 'error'); return; }
-  if (!models.length) { toast('Select at least one model', 'error'); return; }
+  if (!dataset && !gt_csv) { toast('Enter a dataset folder or upload a .zip dataset', 'error'); return; }
+  if (!models.length) { toast('Select at least one model in sidebar', 'error'); return; }
 
   const btn = document.getElementById('evalBtn');
   btn.disabled = true;
   btn.innerHTML = `${SVG_ICONS.spinner} <span>Running...</span>`;
-  toast('Benchmark running — this may take several minutes', 'info');
+  toast('Benchmark running — please wait...', 'info');
 
   try {
     const r = await fetch('/api/evaluate', {
@@ -1753,28 +2751,60 @@ async function runBenchmark() {
   } catch(e) { toast('Benchmark error: ' + e.message, 'error'); }
   finally {
     btn.disabled = false;
-    btn.innerHTML = `${SVG_ICONS.flask} <span>Run Evaluation</span>`;
+    btn.innerHTML = `<span>Run Path Evaluation</span>`;
   }
+}
+
+function getBaselineModels() {
+  const models = (S.allModels && S.allModels.length)
+    ? S.allModels
+    : ['yolov8n', 'yolov9c', 'yolov10n'];
+  return models.map(m => ({
+    model_name: m,
+    total_images: 0,
+    precision: 0.0,
+    recall: 0.0,
+    f1: 0.0,
+    mae: 0.0,
+    mape: 0.0,
+    avg_inference_ms: null,
+    is_baseline: true,
+  }));
 }
 
 async function loadLatestResults() {
   try {
     const r = await fetch('/api/evaluate/latest');
     const d = await r.json();
-    if (d.length) renderBenchmarkResults(d);
-  } catch(e) {}
+    if (d && d.length && d.some(x => (x.total_images > 0 || x.f1 > 0))) {
+      renderBenchmarkResults(d);
+    } else {
+      // Auto-fallback to benchmarking stored records!
+      const rec = await fetch('/api/evaluate/from-records', {method: 'POST'}).then(res => res.json());
+      if (rec.results && rec.results.length && rec.results.some(x => x.total_images > 0)) {
+        renderBenchmarkResults(rec.results);
+      } else {
+        renderBenchmarkResults([]);
+      }
+    }
+  } catch(e) {
+    console.error(e);
+    renderBenchmarkResults([]);
+  }
 }
 
 function renderBenchmarkResults(results) {
-  if (!results?.length) return;
-  const labels = results.map(r => r.model_name);
+  const hasValidData = results && Array.isArray(results) && results.length > 0 && results.some(r => (r.total_images > 0 || r.precision > 0 || r.recall > 0 || r.f1 > 0));
+  const displayData = hasValidData ? results : getBaselineModels();
+
+  const labels = displayData.map(r => r.model_name);
   const colors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'];
 
   const updateChart = (name, key) => {
     const c = S.charts[name];
     if (!c) return;
     c.data.labels = labels;
-    c.data.datasets[0].data = results.map(r => r[key] != null ? parseFloat(r[key]) : 0);
+    c.data.datasets[0].data = displayData.map(r => r[key] != null ? parseFloat(r[key]) : 0);
     c.data.datasets[0].backgroundColor = colors.slice(0, labels.length);
     c.update();
   };
@@ -1785,19 +2815,457 @@ function renderBenchmarkResults(results) {
   updateChart('mae', 'mae');
   updateChart('mape', 'mape');
 
+  // Update KPI card values so boxes always display metrics even when 0 records exist
+  const precEl = document.getElementById('benchValPrecision');
+  const recEl  = document.getElementById('benchValRecall');
+  const f1El   = document.getElementById('benchValF1');
+  const maeEl  = document.getElementById('benchValMae');
+  const mapeEl = document.getElementById('benchValMape');
+
+  if (hasValidData) {
+    const bestF1 = Math.max(...displayData.map(r => parseFloat(r.f1 || 0)));
+    const bestPrec = Math.max(...displayData.map(r => parseFloat(r.precision || 0)));
+    const bestRec = Math.max(...displayData.map(r => parseFloat(r.recall || 0)));
+    const avgMae = displayData.reduce((acc, r) => acc + parseFloat(r.mae || 0), 0) / displayData.length;
+    const avgMape = displayData.reduce((acc, r) => acc + parseFloat(r.mape || 0), 0) / displayData.length;
+
+    if (precEl) precEl.textContent = `${(bestPrec * 100).toFixed(2)}%`;
+    if (recEl)  recEl.textContent  = `${(bestRec * 100).toFixed(2)}%`;
+    if (f1El)   f1El.textContent   = `${(bestF1 * 100).toFixed(2)}%`;
+    if (maeEl)  maeEl.textContent  = avgMae.toFixed(3);
+    if (mapeEl) mapeEl.textContent = `${avgMape.toFixed(2)}%`;
+  } else {
+    // Reset explicitly to 0.00% when there are no records
+    if (precEl) precEl.textContent = '0.00%';
+    if (recEl)  recEl.textContent  = '0.00%';
+    if (f1El)   f1El.textContent   = '0.00%';
+    if (maeEl)  maeEl.textContent  = '0.00';
+    if (mapeEl) mapeEl.textContent = '0.00%';
+  }
+
   // Table
   const tbody = document.getElementById('benchTableBody');
-  tbody.innerHTML = results.map((r, i) => `
-    <tr>
-      <td class="px-3 py-2 font-semibold font-mono" style="color:${colors[i % colors.length]};">${r.model_name}</td>
-      <td class="px-3 py-2">${r.precision != null ? (r.precision * 100).toFixed(2) + '%' : '—'}</td>
-      <td class="px-3 py-2">${r.recall    != null ? (r.recall    * 100).toFixed(2) + '%' : '—'}</td>
-      <td class="px-3 py-2 font-bold">${r.f1 != null ? (r.f1 * 100).toFixed(2) + '%' : '—'}</td>
-      <td class="px-3 py-2">${r.mae  != null ? parseFloat(r.mae).toFixed(3)  : '—'}</td>
-      <td class="px-3 py-2">${r.mape != null ? parseFloat(r.mape).toFixed(2) + '%' : '—'}</td>
-      <td class="px-3 py-2">${r.total_images ?? '—'}</td>
-      <td class="px-3 py-2">${r.avg_inference_ms != null ? r.avg_inference_ms + ' ms' : '—'}</td>
-    </tr>`).join('');
+  if (tbody) {
+    tbody.innerHTML = displayData.map((r, i) => {
+      const isZero = !r.total_images || (!r.precision && !r.recall && !r.f1);
+      const latencyStr = r.avg_inference_ms != null ? `${r.avg_inference_ms} ms` : (isZero ? '<span class="text-slate-500 italic">Ready</span>' : '—');
+      const imgCountStr = isZero ? '<span class="text-slate-400 font-normal">0 (Awaiting scan)</span>' : `${r.total_images}`;
+      const f1Color = isZero ? 'text-slate-400' : 'text-blue-400 font-bold';
+
+      return `
+      <tr class="hover:bg-slate-700/10 transition-colors">
+        <td class="px-3 py-2 font-semibold font-mono" style="color:${colors[i % colors.length]};">${r.model_name}</td>
+        <td class="px-3 py-2 font-mono">${r.precision != null ? (r.precision * 100).toFixed(2) + '%' : '0.00%'}</td>
+        <td class="px-3 py-2 font-mono">${r.recall    != null ? (r.recall    * 100).toFixed(2) + '%' : '0.00%'}</td>
+        <td class="px-3 py-2 font-mono ${f1Color}">${r.f1 != null ? (r.f1 * 100).toFixed(2) + '%' : '0.00%'}</td>
+        <td class="px-3 py-2 font-mono">${r.mae  != null ? parseFloat(r.mae).toFixed(3)  : '0.000'}</td>
+        <td class="px-3 py-2 font-mono">${r.mape != null ? parseFloat(r.mape).toFixed(2) + '%' : '0.00%'}</td>
+        <td class="px-3 py-2 font-mono">${imgCountStr}</td>
+        <td class="px-3 py-2 font-mono font-semibold" style="color:#22c55e;">${latencyStr}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+// ═══════════════════════════════════════════════════ DYNAMIC SLIDER TUNING
+async function reprocessCachedImage() {
+  const statusEl = document.getElementById('cachedTuningStatus');
+  if (statusEl) {
+    statusEl.textContent = 'Tuning...';
+    statusEl.style.color = '#f59e0b';
+  }
+  try {
+    const res = await fetch('/api/reprocess-current', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conf: S.conf, iou: S.iou })
+    });
+    if (!res.ok) {
+      if (statusEl) {
+        statusEl.textContent = 'Ready';
+        statusEl.style.color = '#22c55e';
+      }
+      return;
+    }
+    const d = await res.json();
+    if (statusEl) {
+      statusEl.textContent = 'Active';
+      statusEl.style.color = '#22c55e';
+    }
+
+    // Render annotated frame onto uploadCanvas
+    if (d.annotated_frame) {
+      const canvas = document.getElementById('uploadCanvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        ctx.drawImage(img, 0, 0);
+        canvas.style.display = 'block';
+        document.getElementById('videoCanvas').style.display = 'none';
+        document.getElementById('canvasPlaceholder').style.display = 'none';
+      };
+      img.src = 'data:image/jpeg;base64,' + d.annotated_frame;
+    }
+
+    updateKPIs({
+      live_count: d.count,
+      count_in: 0,
+      count_out: 0,
+      fps: 0,
+      density_pct: d.density_pct,
+      status: d.status,
+      avg_conf: d.avg_conf,
+      frame_idx: 1,
+    });
+  } catch (err) {
+    console.warn('reprocessCachedImage error:', err);
+    if (statusEl) {
+      statusEl.textContent = 'Ready';
+      statusEl.style.color = '#22c55e';
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════ ACADEMIC EVALUATION & BENCHMARK
+async function openEvalModal() {
+  const modal = document.getElementById('evalSampleModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+
+  // Check cached image status
+  try {
+    const r = await fetch('/api/cached-image/status').then(res => res.json());
+    S.hasCachedImage = r.has_cached_image;
+    S.cachedFilename = r.filename;
+    const nameEl = document.getElementById('evalCachedName');
+    if (nameEl) nameEl.textContent = r.has_cached_image ? r.filename : 'No image cached yet';
+    const checkEl = document.getElementById('evalQuickUseCached');
+    if (checkEl) checkEl.checked = r.has_cached_image;
+  } catch (e) {
+    console.warn(e);
+  }
+
+  // Populate model checkboxes
+  populateEvalModelCheckboxes();
+
+  // Load history in background
+  loadEvalBenchmarks();
+}
+
+function closeEvalModal() {
+  const modal = document.getElementById('evalSampleModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function switchEvalModalTab(tab) {
+  S.evalModalTab = tab;
+  const btnQuick = document.getElementById('evalTabBtn-quick');
+  const btnYolo = document.getElementById('evalTabBtn-yolo');
+  const btnHist = document.getElementById('evalTabBtn-history');
+
+  const secQuick = document.getElementById('evalSectionQuick');
+  const secYolo = document.getElementById('evalSectionYolo');
+  const shared = document.getElementById('evalSharedParams');
+  const histPanel = document.getElementById('evalHistoryPanel');
+  const resultsPanel = document.getElementById('evalResultsPanel');
+
+  const activeClass = 'text-xs font-semibold py-2.5 px-3 border-b-2 border-blue-500 text-blue-500 dark:text-blue-400 transition-colors';
+  const inactiveClass = 'text-xs font-semibold py-2.5 px-3 border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors';
+
+  if (btnQuick) btnQuick.className = tab === 'quick' ? activeClass : inactiveClass;
+  if (btnYolo) btnYolo.className = tab === 'yolo' ? activeClass : inactiveClass;
+  if (btnHist) btnHist.className = (tab === 'history' ? activeClass : inactiveClass) + ' ml-auto flex items-center gap-1.5';
+
+  if (tab === 'history') {
+    if (secQuick) secQuick.classList.add('hidden');
+    if (secYolo) secYolo.classList.add('hidden');
+    if (shared) shared.classList.add('hidden');
+    if (resultsPanel) resultsPanel.classList.add('hidden');
+    if (histPanel) histPanel.classList.remove('hidden');
+    loadEvalBenchmarks();
+  } else {
+    if (histPanel) histPanel.classList.add('hidden');
+    if (shared) shared.classList.remove('hidden');
+    if (tab === 'quick') {
+      if (secQuick) secQuick.classList.remove('hidden');
+      if (secYolo) secYolo.classList.add('hidden');
+    } else {
+      if (secQuick) secQuick.classList.add('hidden');
+      if (secYolo) secYolo.classList.remove('hidden');
+    }
+  }
+}
+
+function setOptionASource(mode) {
+  const btnCached = document.getElementById('btnSourceCached');
+  const btnUpload = document.getElementById('btnSourceUpload');
+  const dispCached = document.getElementById('optionACachedDisplay');
+  const dispUpload = document.getElementById('optionAUploadDisplay');
+  const badge = document.getElementById('evalSourceModeBadge');
+  const hidden = document.getElementById('evalQuickUseCachedHidden');
+
+  if (mode === 'cached') {
+    if (btnCached) { btnCached.style.background = 'var(--accent)'; btnCached.style.color = 'white'; }
+    if (btnUpload) { btnUpload.style.background = 'transparent'; btnUpload.style.color = 'var(--muted)'; }
+    if (dispCached) dispCached.classList.remove('hidden');
+    if (dispUpload) dispUpload.classList.add('hidden');
+    if (badge) badge.textContent = 'Current Cached';
+    if (hidden) hidden.value = 'true';
+  } else {
+    if (btnUpload) { btnUpload.style.background = 'var(--accent)'; btnUpload.style.color = 'white'; }
+    if (btnCached) { btnCached.style.background = 'transparent'; btnCached.style.color = 'var(--muted)'; }
+    if (dispCached) dispCached.classList.add('hidden');
+    if (dispUpload) dispUpload.classList.remove('hidden');
+    if (badge) badge.textContent = 'Change / Upload';
+    if (hidden) hidden.value = 'false';
+  }
+}
+
+function onEvalFileSelected(file) {
+  if (!file) return;
+  S.evalCachedFile = file;
+  const nameEl = document.getElementById('evalSelectedFileName');
+  if (nameEl) {
+    nameEl.textContent = file.name;
+    nameEl.title = file.name;
+    nameEl.style.color = 'var(--text)';
+  }
+  setOptionASource('upload');
+}
+
+function onYoloImageSelected(file) {
+  const el = document.getElementById('evalYoloImageName');
+  if (el) {
+    el.textContent = file ? file.name : 'Use Cached or Select File';
+    el.title = file ? file.name : '';
+    el.style.color = file ? 'var(--text)' : 'var(--muted)';
+  }
+}
+
+function onYoloTxtSelected(file) {
+  const el = document.getElementById('evalYoloTxtName');
+  if (el) {
+    el.textContent = file ? file.name : 'No .txt file selected';
+    el.title = file ? file.name : '';
+    el.style.color = file ? 'var(--text)' : 'var(--muted)';
+  }
+}
+
+function populateEvalModelCheckboxes() {
+  const container = document.getElementById('evalModalModelChecks');
+  if (!container) return;
+
+  const models = S.allModels?.length ? S.allModels : ['yolov8x', 'yolov11x', 'rtdetr-x'];
+  container.innerHTML = models.map(m => `
+    <label class="flex items-center gap-1 cursor-pointer font-mono text-xs px-2 py-0.5 rounded border"
+           style="background:var(--card); border-color:var(--border);">
+      <input type="checkbox" name="evalModels" value="${m}" checked class="rounded" />
+      <span>${m}</span>
+    </label>
+  `).join('');
+}
+
+async function runSampleEvaluation() {
+  const btn = document.getElementById('btnRunAcademicEval');
+  const btnText = document.getElementById('btnRunAcademicEvalText');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; }
+  if (btnText) btnText.textContent = 'Evaluating models...';
+
+  try {
+    const fd = new FormData();
+    const tab = S.evalModalTab || 'quick';
+
+    const confVal = parseFloat(document.getElementById('evalModalConf')?.value || S.conf || 0.50);
+    const iouVal = parseFloat(document.getElementById('evalModalIou')?.value || S.iou || 0.50);
+    fd.append('conf', confVal);
+    fd.append('iou_thresh', iouVal);
+
+    // Selected models
+    const checked = Array.from(document.querySelectorAll('input[name="evalModels"]:checked')).map(c => c.value);
+    if (checked.length) {
+      fd.append('models', JSON.stringify(checked));
+    }
+
+    if (tab === 'quick') {
+      const actualCount = document.getElementById('evalQuickActualCount')?.value;
+      if (actualCount === '' || actualCount == null) {
+        toast('Please enter the Actual Ground Truth Count for Option A', 'error');
+        return;
+      }
+      fd.append('actual_count', parseInt(actualCount));
+
+      const useCached = document.getElementById('evalQuickUseCachedHidden')?.value === 'true';
+      if (useCached) {
+        fd.append('use_cached_image', 'true');
+      } else if (S.evalCachedFile) {
+        fd.append('image_file', S.evalCachedFile);
+      } else {
+        toast('Please browse and select an image file or choose Current Cached', 'error');
+        return;
+      }
+    } else if (tab === 'yolo') {
+      const imgInput = document.getElementById('evalYoloImageInput');
+      const txtInput = document.getElementById('evalYoloTxtInput');
+
+      if (!txtInput?.files?.length) {
+        toast('Please upload a YOLO annotation file (.txt)', 'error');
+        return;
+      }
+      fd.append('annotation_file', txtInput.files[0]);
+
+      if (imgInput?.files?.length) {
+        fd.append('image_file', imgInput.files[0]);
+      } else {
+        fd.append('use_cached_image', 'true');
+      }
+    }
+
+    toast('Running academic evaluation & box matching...', 'info');
+    const resp = await fetch('/api/evaluate-sample', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (!resp.ok) {
+      toast(data.detail || 'Evaluation failed', 'error');
+      return;
+    }
+
+    toast('Academic evaluation complete!', 'success');
+    renderEvalResults(data);
+    loadEvalBenchmarks();
+  } catch (err) {
+    toast('Evaluation error: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+    if (btnText) btnText.textContent = 'Calculate Academic Metrics';
+  }
+}
+
+function renderEvalResults(data) {
+  const panel = document.getElementById('evalResultsPanel');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+
+  const models = data.models || [];
+  if (!models.length) return;
+
+  // Primary model for card display (first model or highest F1)
+  const sorted = [...models].sort((a, b) => (b.f1 || 0) - (a.f1 || 0));
+  const primary = sorted[0];
+
+  // 1. KPI Cards
+  const cardF1 = document.getElementById('cardF1');
+  const cardF1Badge = document.getElementById('cardF1Badge');
+  if (cardF1) cardF1.textContent = (primary.f1 != null) ? primary.f1.toFixed(4) : '0.0000';
+  if (cardF1Badge) {
+    const f1Pct = ((primary.f1 || 0) * 100).toFixed(1);
+    cardF1Badge.textContent = `${primary.model_name}: ${f1Pct}% Quality`;
+  }
+
+  const cardPrecision = document.getElementById('cardPrecision');
+  if (cardPrecision) cardPrecision.textContent = ((primary.precision || 0) * 100).toFixed(1) + '%';
+
+  const cardRecall = document.getElementById('cardRecall');
+  if (cardRecall) cardRecall.textContent = ((primary.recall || 0) * 100).toFixed(1) + '%';
+
+  const cardError = document.getElementById('cardError');
+  const cardMape = document.getElementById('cardMape');
+  if (cardError) cardError.textContent = `MAE: ${parseFloat(primary.mae || 0).toFixed(2)}`;
+  if (cardMape) cardMape.textContent = `MAPE: ${parseFloat(primary.mape || 0).toFixed(2)}%`;
+
+  // 2. Visual Confusion Matrix
+  const cm = primary.confusion_matrix || {};
+  const cmTP = document.getElementById('cmTP');
+  const cmFP = document.getElementById('cmFP');
+  const cmFN = document.getElementById('cmFN');
+  const cmTN = document.getElementById('cmTN');
+  const cmBadge = document.getElementById('cmModeBadge');
+
+  if (cmTP) cmTP.textContent = cm.tp ?? 0;
+  if (cmFP) cmFP.textContent = cm.fp ?? 0;
+  if (cmFN) cmFN.textContent = cm.fn ?? 0;
+  if (cmTN) cmTN.textContent = (cm.tn && cm.tn > 0) ? cm.tn : 'N/A';
+  if (cmBadge) cmBadge.textContent = `${primary.model_name} · ${primary.evaluation_mode === 'yolo_annotations' ? 'IoU ≥ 0.5 (YOLO .txt)' : 'Ground Truth Count'}`;
+
+  // 3. Count Balance
+  const predCountEl = document.getElementById('evalPredCount');
+  const actualCountEl = document.getElementById('evalActualCount');
+  const accuracyEl = document.getElementById('evalAccuracyScore');
+
+  if (predCountEl) predCountEl.textContent = primary.predicted_count ?? 0;
+  if (actualCountEl) actualCountEl.textContent = primary.actual_count ?? 0;
+  if (accuracyEl) accuracyEl.textContent = primary.accuracy_pct != null ? `${primary.accuracy_pct}%` : '0.0%';
+
+  // 4. Comparative Model Table
+  const tbody = document.getElementById('evalModelTableBody');
+  if (tbody) {
+    tbody.innerHTML = models.map(m => {
+      const cm_m = m.confusion_matrix || {};
+      return `
+        <tr class="hover:bg-slate-700/10 transition-colors font-mono">
+          <td class="px-3 py-2 font-bold font-sans text-blue-400">${m.model_name}</td>
+          <td class="px-3 py-2">${((m.precision || 0) * 100).toFixed(2)}%</td>
+          <td class="px-3 py-2">${((m.recall || 0) * 100).toFixed(2)}%</td>
+          <td class="px-3 py-2 font-bold text-indigo-400">${((m.f1 || 0) * 100).toFixed(2)}%</td>
+          <td class="px-3 py-2">${parseFloat(m.mae || 0).toFixed(2)}</td>
+          <td class="px-3 py-2">${parseFloat(m.mape || 0).toFixed(2)}%</td>
+          <td class="px-3 py-2 text-emerald-400 font-bold">${cm_m.tp ?? 0}</td>
+          <td class="px-3 py-2 text-amber-400 font-bold">${cm_m.fp ?? 0}</td>
+          <td class="px-3 py-2 text-rose-400 font-bold">${cm_m.fn ?? 0}</td>
+          <td class="px-3 py-2 text-emerald-300 font-sans">${m.inference_ms ?? 0} ms</td>
+        </tr>
+      `;
+    }).join('');
+  }
+}
+
+async function loadEvalBenchmarks() {
+  const tbody = document.getElementById('evalHistoryTableBody');
+  if (!tbody) return;
+  try {
+    const runs = await fetch('/api/evaluation-benchmarks?limit=100').then(r => r.json());
+    if (!runs || !runs.length) {
+      tbody.innerHTML = '<tr><td colspan="11" class="px-3 py-4 text-center text-slate-500">No benchmark runs saved yet</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = runs.map(r => {
+      const cm = r.confusion_matrix || {};
+      const f1Pct = (r.f1_score != null) ? (r.f1_score * 100).toFixed(1) + '%' : '—';
+      const precPct = (r.precision != null) ? (r.precision * 100).toFixed(1) + '%' : '—';
+      const recPct = (r.recall != null) ? (r.recall * 100).toFixed(1) + '%' : '—';
+      return `
+        <tr class="hover:bg-slate-700/10 transition-colors font-mono">
+          <td class="px-2.5 py-1.5 text-slate-400">#${r.id}</td>
+          <td class="px-2.5 py-1.5 text-slate-400 font-sans">${r.timestamp}</td>
+          <td class="px-2.5 py-1.5 font-bold font-sans text-blue-400">${r.model_name}</td>
+          <td class="px-2.5 py-1.5 text-emerald-400 font-bold">${r.actual_count}</td>
+          <td class="px-2.5 py-1.5 text-blue-300 font-bold">${r.predicted_count}</td>
+          <td class="px-2.5 py-1.5 text-indigo-400 font-bold">${f1Pct}</td>
+          <td class="px-2.5 py-1.5">${precPct}</td>
+          <td class="px-2.5 py-1.5">${recPct}</td>
+          <td class="px-2.5 py-1.5">${r.mae != null ? parseFloat(r.mae).toFixed(2) : '—'}</td>
+          <td class="px-2.5 py-1.5">${r.mape != null ? parseFloat(r.mape).toFixed(1) + '%' : '—'}</td>
+          <td class="px-2.5 py-1.5 text-[11px]"><span class="text-emerald-400">${cm.tp ?? 0}</span> / <span class="text-amber-400">${cm.fp ?? 0}</span> / <span class="text-rose-400">${cm.fn ?? 0}</span></td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.warn('loadEvalBenchmarks error:', err);
+  }
+}
+
+async function clearEvalBenchmarks() {
+  if (!confirm('Clear all saved academic evaluation benchmark records?')) return;
+  try {
+    await fetch('/api/evaluate/results', { method: 'DELETE' }).catch(() => {});
+    await fetch('/api/evaluation-benchmarks', { method: 'DELETE' }).catch(() => {});
+    toast('Academic benchmark records cleared', 'info');
+    loadEvalBenchmarks();
+    renderBenchmarkResults([]);
+  } catch (e) {
+    toast('Error clearing benchmarks', 'error');
+  }
 }
 </script>
 </body>
