@@ -595,6 +595,7 @@ class ModelEvaluator:
                 "avg_confidence": round(avg_cf, 3),
                 "inference_ms": round(lat_ms, 1),
                 "boxes": boxes,
+                "boxes_conf": [round(c, 3) for c in confs],
                 "source_name": source_name,
             })
             models_res.append(metrics)

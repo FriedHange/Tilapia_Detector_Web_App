@@ -2,49 +2,133 @@
 # .gitignore — Tilapia Fingerling Counter Web Application
 # =====================================================================
 
+# ---------------------------------------------------------------------
 # Python Virtual Environments
+# ---------------------------------------------------------------------
 venv/
 .venv/
 env/
 ENV/
 env.bak/
 venv.bak/
+ENV/
+env/
 
-# Byte-compiled / optimized / cache files
+# ---------------------------------------------------------------------
+# Byte-compiled / Optimized / Python Runtime Caches
+# ---------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
 
-# User Uploads & Processed Media (keep directory via .gitignore)
+# ---------------------------------------------------------------------
+# Python Packaging & Build Artifacts
+# ---------------------------------------------------------------------
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# ---------------------------------------------------------------------
+# Ultralytics YOLO / PyTorch Runtime & Training Caches
+# ---------------------------------------------------------------------
+runs/
+wandb/
+.tensorboard/
+*.pt.download
+*.engine
+*.onnx
+*.torchscript
+
+# ---------------------------------------------------------------------
+# Local Databases, WAL Journals, & Telemetry DBs
+# (Databases are automatically initialized at runtime by database.py)
+# ---------------------------------------------------------------------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+tilapia.db
+tilapia_web_analytics.db
+
+# ---------------------------------------------------------------------
+# User Uploads & Runtime Processed Media
+# (Directory structure preserved via .gitkeep / .gitignore)
+# ---------------------------------------------------------------------
 uploads/*
 !uploads/.gitignore
 !uploads/.gitkeep
+temp/
+tmp/
 
-# Local SQLite Databases & Telemetry Logs
-*.db
-*.db-journal
-*.sqlite
-*.sqlite3
-tilapia_web_analytics.db
+# ---------------------------------------------------------------------
+# Scratch Files, Documentation Extractions & Working Notes
+# ---------------------------------------------------------------------
+extracted_paper_text.txt
+extracted_*.txt
+*.scratch
+scratch/
+notes*.txt
+*.tmp
+*.temp
+*.bak
 
-# IDE & Editor Files
+# ---------------------------------------------------------------------
+# Large Local Test Videos & Raw Video Captures (>50MB)
+# (Keeps repository lightweight; web assets in static/media/ remain tracked)
+# ---------------------------------------------------------------------
+sample.mp4
+test_*.mp4
+raw_*.mp4
+static/media/tilapia_monitoring_channel.mp4
+
+# ---------------------------------------------------------------------
+# Logs & Process IDs
+# ---------------------------------------------------------------------
+*.log
+logs/
+*.pid
+
+# ---------------------------------------------------------------------
+# Environment Configuration & Secret Keys
+# ---------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---------------------------------------------------------------------
+# IDE, Editor, & Developer Tooling
+# ---------------------------------------------------------------------
 .vscode/
 .idea/
+.cursor/
 *.sublime-project
 *.sublime-workspace
 *.swp
 *.swo
 *~
 
-# Operating System Files
+# ---------------------------------------------------------------------
+# Operating System Metadata
+# ---------------------------------------------------------------------
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
 ehthumbs.db
 desktop.ini
-
-# Logs
-*.log
-runs/

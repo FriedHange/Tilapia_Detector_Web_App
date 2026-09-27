@@ -90,6 +90,7 @@ class FingerlngTracker:
 
         # Active tracks seen in last update (pruned on update)
         self._active_ids: set[int] = set()
+        self._next_id: int = 0
 
     # ------------------------------------------------------------------
     # Configuration
@@ -121,6 +122,7 @@ class FingerlngTracker:
         self._trails.clear()
         self._last_side.clear()
         self._active_ids.clear()
+        self._next_id = 0
 
     # ------------------------------------------------------------------
     # Core update
@@ -135,24 +137,6 @@ class FingerlngTracker:
     ) -> list[dict]:
         """
         Process one frame's Ultralytics results and return enriched detections.
-
-        Parameters
-        ----------
-        results : ultralytics.engine.results.Results
-            The first element of model(frame) output.
-        frame_w, frame_h : int
-            Pixel dimensions of the current frame (for line conversion).
-        conf_thresh : float
-            Minimum confidence to include a detection.
-
-        Returns
-        -------
-        list[dict] with keys:
-            track_id, class_id, class_name, conf,
-            x1, y1, x2, y2,          # pixel coords
-            cx, cy,                    # centroid pixels
-            trail,                     # list of (cx,cy) recent history
-            crossed_in, crossed_out,   # bool — crossed THIS frame?
         """
         # Pixel coords of counting line endpoints
         (lx1, ly1), (lx2, ly2) = self.get_line_pixels(frame_w, frame_h)
@@ -161,7 +145,7 @@ class FingerlngTracker:
         current_ids: set[int] = set()
 
         r = results
-        if r.boxes is None or len(r.boxes) == 0:
+        if r is None or r.boxes is None or len(r.boxes) == 0:
             self._prune_stale_tracks(current_ids)
             return detections
 
@@ -178,25 +162,59 @@ class FingerlngTracker:
             cls_id = int(boxes.cls[i])
             class_name = names.get(cls_id, str(cls_id))
 
-            # Track ID (ByteTrack assigns .id; may be None on first frame)
-            tid_tensor = boxes.id
-            if tid_tensor is not None:
-                track_id = int(tid_tensor[i])
-            else:
-                # No tracker — use a synthetic ID from bounding box hash
-                track_id = hash((round(x1, 1), round(y1, 1))) & 0xFFFF
-
             # Centroid
             cx = (x1 + x2) / 2.0
             cy = (y1 + y2) / 2.0
+
+            # Track ID assignment
+            tid_tensor = getattr(boxes, "id", None)
+            if tid_tensor is not None and tid_tensor[i] is not None:
+                track_id = int(tid_tensor[i])
+            else:
+                # Fast centroid-distance matching to keep continuous IDs
+                best_tid = None
+                min_dist = float("inf")
+                for prev_id in self._active_ids:
+                    if prev_id not in current_ids and len(self._trails[prev_id]) > 0:
+                        px, py = self._trails[prev_id][-1]
+                        dist = ((cx - px) ** 2 + (cy - py) ** 2) ** 0.5
+                        if dist < min_dist and dist < 80.0:
+                            min_dist = dist
+                            best_tid = prev_id
+
+                if best_tid is not None:
+                    track_id = best_tid
+                else:
+                    self._next_id += 1
+                    track_id = self._next_id
 
             # Update trail
             self._trails[track_id].append((cx, cy))
             current_ids.add(track_id)
 
-            # Virtual counting line removed for enclosed tub monitoring
+            # Virtual counting line logic
             crossed_in = False
             crossed_out = False
+
+            side = _point_side(lx1, ly1, lx2, ly2, cx, cy)
+            prev_side = self._last_side.get(track_id)
+
+            if prev_side is not None and prev_side != 0:
+                # Sign change indicates crossing the line vector
+                if prev_side > 0 and side <= 0:
+                    # Crossed from left side → right side = "in"
+                    if track_id not in self._counted_in:
+                        self.count_in += 1
+                        self._counted_in.add(track_id)
+                        crossed_in = True
+                elif prev_side < 0 and side >= 0:
+                    # Crossed from right side → left side = "out"
+                    if track_id not in self._counted_out:
+                        self.count_out += 1
+                        self._counted_out.add(track_id)
+                        crossed_out = True
+
+            self._last_side[track_id] = side
 
             detections.append(
                 {
