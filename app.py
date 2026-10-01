@@ -224,6 +224,9 @@ templates = None  # HTML is served directly (no Jinja2 needed)
 def _infer_frame(
     frame: np.ndarray,
     tracker_enabled: bool = True,
+    conf: Optional[float] = None,
+    iou: Optional[float] = None,
+    active_models: Optional[list[str]] = None,
 ) -> tuple[list[dict], list[dict], list]:
     """
     Run all active models on a frame, apply cross-model NMS.
@@ -238,8 +241,11 @@ def _infer_frame(
     all_boxes: list[dict] = []
     raw_per_model: list[dict] = []
     first_results_obj = None
+    conf = state.conf if conf is None else conf
+    iou = state.iou if iou is None else iou
+    active_models = list(state.active_models if active_models is None else active_models)
 
-    for model_name in state.active_models:
+    for model_name in active_models:
         model = state.model_pool.get(model_name)
         if model is None:
             continue
@@ -249,14 +255,14 @@ def _infer_frame(
                 results = model.track(
                     frame,
                     verbose=False,
-                    conf=state.conf,
-                    iou=state.iou,
+                    conf=conf,
+                    iou=iou,
                     persist=True,
                     tracker="bytetrack.yaml",
                     device=state.device,
                 )
             else:
-                results = model(frame, verbose=False, conf=state.conf, iou=state.iou, device=state.device)
+                results = model(frame, verbose=False, conf=conf, iou=iou, device=state.device)
 
             t1 = time.perf_counter()
             lat_ms = (t1 - t0) * 1000.0
@@ -305,7 +311,7 @@ def _infer_frame(
             print(f"[INFERENCE] {model_name} error: {exc}")
 
     # Cross-model NMS deduplication
-    deduped = nms_dedup(all_boxes, iou_thresh=state.iou)
+    deduped = nms_dedup(all_boxes, iou_thresh=iou) if len(active_models) > 1 else all_boxes
     return raw_per_model, deduped, first_results_obj
 
 
@@ -693,21 +699,42 @@ def _process_frame_worker(
         frame = cv2.resize(frame, (int(round(w * scale)), int(round(h * scale))), interpolation=cv2.INTER_AREA)
         h, w = frame.shape[:2]
 
-    if run_inference or cached_result is None:
-        raw_per_model, deduped, raw_results = _infer_frame(frame, False)
+    settings = (conf, iou, tuple(active_models))
+    if run_inference or cached_result is None or cached_result.get("settings") != settings:
+        raw_per_model, deduped, raw_results = _infer_frame(frame, False, conf, iou, active_models)
         if raw_results is not None:
             tracked_dets = tracker.update(raw_results, w, h, conf_thresh=conf)
-            trail_map = {d["track_id"]: d["trail"] for d in tracked_dets}
-            crossed_in_ids  = {d["track_id"] for d in tracked_dets if d["crossed_in"]}
-            crossed_out_ids = {d["track_id"] for d in tracked_dets if d["crossed_out"]}
+            unmatched = tracked_dets.copy()
             for box in deduped:
-                tid = box.get("track_id")
-                box["trail"]       = trail_map.get(tid, [])
-                box["crossed_in"]  = tid in crossed_in_ids
-                box["crossed_out"] = tid in crossed_out_ids
+                # The inference path uses model.predict, so its boxes have no
+                # Ultralytics track IDs. Match the tracker's first-model boxes
+                # back to the displayed (possibly cross-model deduplicated) boxes.
+                def overlap(det):
+                    ix1 = max(box["x1"], det["x1"])
+                    iy1 = max(box["y1"], det["y1"])
+                    ix2 = min(box["x2"], det["x2"])
+                    iy2 = min(box["y2"], det["y2"])
+                    intersection = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+                    box_area = max(0, box["x2"] - box["x1"]) * max(0, box["y2"] - box["y1"])
+                    det_area = max(0, det["x2"] - det["x1"]) * max(0, det["y2"] - det["y1"])
+                    union = box_area + det_area - intersection
+                    return intersection / union if union else 0.0
+
+                match = max(unmatched, key=overlap) if unmatched else None
+                if match is not None and overlap(match) >= 0.5:
+                    unmatched.remove(match)
+                    box["track_id"] = match["track_id"]
+                    box["trail"] = match["trail"]
+                    box["crossed_in"] = match["crossed_in"]
+                    box["crossed_out"] = match["crossed_out"]
+                else:
+                    box["trail"] = []
+                    box["crossed_in"] = False
+                    box["crossed_out"] = False
         new_cached = {
             "raw_per_model": raw_per_model,
             "deduped": deduped,
+            "settings": settings,
         }
     else:
         raw_per_model = cached_result.get("raw_per_model", [])

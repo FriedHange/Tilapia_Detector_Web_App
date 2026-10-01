@@ -1082,7 +1082,7 @@
           </div>
 
           <div class="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[var(--bg-card3)] border border-[var(--border)]"
-               title="IoU (Intersection-over-Union) NMS Threshold: Overlap limit used to deduplicate overlapping bounding boxes on the same fish">
+               title="IoU (Intersection-over-Union) threshold: Changes overlap suppression when detections overlap; counts can stay the same when boxes do not overlap">
             <span class="text-[var(--text-muted)] font-semibold">IoU:</span>
             <input type="range" id="globalIouSlider" min="10" max="90" value="50"
               oninput="onGlobalSliderChange('iou', this.value)" class="w-16 h-1 accent-cyan-400 cursor-pointer"
@@ -2725,6 +2725,7 @@
 
       await refreshFarmData();
       await initModelsInfo();
+      await initDetectionConfig();
 
       // Check URL search parameters for initial view switching (e.g. ?view=tanks-counting)
       try {
@@ -2778,6 +2779,24 @@
         updateMonitoringBadges(d);
       } catch (err) {
         console.warn('Models info fetch error:', err);
+      }
+    }
+
+    async function initDetectionConfig() {
+      try {
+        const res = await fetch('/api/config');
+        if (!res.ok) return;
+        const config = await res.json();
+        for (const key of ['conf', 'iou']) {
+          const slider = document.getElementById(key === 'conf' ? 'globalConfSlider' : 'globalIouSlider');
+          const label = document.getElementById(key === 'conf' ? 'globalConfVal' : 'globalIouVal');
+          const percent = Math.round(config[key] * 100);
+          App[key] = config[key];
+          slider.value = percent;
+          label.textContent = `${percent}%`;
+        }
+      } catch (err) {
+        console.warn('Detection settings fetch error:', err);
       }
     }
 
@@ -3188,6 +3207,7 @@
 
     function onFocusedTankChange(tankId, forceStartStream = false) {
       App.focusedTankId = tankId;
+      App.focusedImageVisible = false;
       const tank = App.tanks.find(t => t.tank_id === tankId);
       if (!tank) return;
 
@@ -3389,6 +3409,7 @@
     function startFocusedStream() {
       const tank = App.tanks.find(t => t.tank_id === App.focusedTankId);
       if (!tank) return;
+      App.focusedImageVisible = false;
 
       App.focusedStreamRunning = true;
       document.getElementById('btnFocusedStart').classList.add('hidden');
@@ -3493,6 +3514,7 @@
     document.getElementById('focusedFileInput').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      if (App.focusedStreamRunning) stopFocusedStream();
 
       const formData = new FormData();
       formData.append('file', file);
@@ -3503,40 +3525,49 @@
         if (!res.ok) throw new Error('Upload inference failed');
         const data = await res.json();
 
-        const count = data.count || 0;
-        document.getElementById('focusedLiveCount').textContent = count;
-        document.getElementById('focusHudCount').textContent = count;
-        document.getElementById('focusedPlaceholder').classList.add('hidden');
-
-        const tank = App.tanks.find(t => t.tank_id === App.focusedTankId);
-        if (tank) {
-          const bm = round((count * tank.avg_weight_g) / 1000.0, 2);
-          const fd = round(bm * tank.feed_rate_pct, 2);
-          const val = round(bm * 160.0, 2);
-          document.getElementById('focusedPreviewBiomass').textContent = `${bm} kg`;
-          document.getElementById('focusHudBiomass').textContent = `${bm} kg`;
-          document.getElementById('focusedPreviewFeed').textContent = `${fd} kg`;
-          document.getElementById('focusHudFeed').textContent = `${fd} kg`;
-          document.getElementById('focusedPreviewValuation').textContent = `₱ ${val}`;
-          document.getElementById('focusHudValuation').textContent = `₱ ${val}`;
-        }
-
-        if (data.annotated_frame) {
-          const canvas = document.getElementById('focusedVideoCanvas');
-          const ctx = canvas.getContext('2d');
-          const img = new Image();
-          img.onload = () => {
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
-          };
-          img.src = `data:image/jpeg;base64,${data.annotated_frame}`;
-        }
+        App.focusedImageVisible = true;
+        showFocusedImageDetections(data);
         toast(`Detected ${data.count} fingerlings in sample`, 'success');
       } catch (err) {
         toast(`Upload error: ${err.message}`, 'error');
       }
     });
+
+    function showFocusedImageDetections(data) {
+      const count = data.count || 0;
+      document.getElementById('focusedLiveCount').textContent = count;
+      document.getElementById('focusHudCount').textContent = count;
+      document.getElementById('focusedPlaceholder').classList.add('hidden');
+
+      const tank = App.tanks.find(t => t.tank_id === App.focusedTankId);
+      if (tank) {
+        const bm = round((count * tank.avg_weight_g) / 1000.0, 2);
+        const fd = round(bm * tank.feed_rate_pct, 2);
+        const val = round(bm * 160.0, 2);
+        document.getElementById('focusedPreviewBiomass').textContent = `${bm} kg`;
+        document.getElementById('focusHudBiomass').textContent = `${bm} kg`;
+        document.getElementById('focusedPreviewFeed').textContent = `${fd} kg`;
+        document.getElementById('focusHudFeed').textContent = `${fd} kg`;
+        document.getElementById('focusedPreviewValuation').textContent = `₱ ${val}`;
+        document.getElementById('focusHudValuation').textContent = `₱ ${val}`;
+      }
+
+      if (data.annotated_frame) {
+        const canvas = document.getElementById('focusedVideoCanvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        img.onload = () => {
+          canvas.width = img.width;
+          canvas.height = img.height;
+          ctx.drawImage(img, 0, 0);
+        };
+        img.src = `data:image/jpeg;base64,${data.annotated_frame}`;
+      }
+    }
+
+    let detectionSettingsTimer;
+    let detectionSettingsVersion = 0;
+    let detectionSettingsRequest = Promise.resolve();
 
     function commitFromTankCard(tankId) {
       const count = App.tankSockets[tankId]?.liveCount || 0;
@@ -3549,6 +3580,7 @@
     }
 
     function onGlobalSliderChange(type, val) {
+      val = Number(val);
       if (type === 'conf') {
         App.conf = val / 100.0;
         document.getElementById('globalConfVal').textContent = `${val}%`;
@@ -3564,6 +3596,31 @@
       if (App.focusedWs?.readyState === WebSocket.OPEN) {
         App.focusedWs.send(JSON.stringify({ type: `set_${type}`, value: App[type] }));
       }
+      const version = ++detectionSettingsVersion;
+      clearTimeout(detectionSettingsTimer);
+      detectionSettingsTimer = setTimeout(() => {
+        detectionSettingsRequest = detectionSettingsRequest.catch(() => {}).then(async () => {
+          if (version !== detectionSettingsVersion) return;
+          const res = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ conf: App.conf, iou: App.iou }),
+          });
+          if (!res.ok) throw new Error('Could not save detection settings');
+          if (version === detectionSettingsVersion && App.focusedImageVisible && !App.focusedStreamRunning) {
+            const reprocessed = await fetch('/api/reprocess-current', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ conf: App.conf, iou: App.iou }),
+            });
+            if (!reprocessed.ok) throw new Error('Could not update image detections');
+            const data = await reprocessed.json();
+            if (version === detectionSettingsVersion && App.focusedImageVisible && !App.focusedStreamRunning) {
+              showFocusedImageDetections(data);
+            }
+          }
+        }).catch(err => toast(err.message, 'error'));
+      }, 200);
     }
 
     // ─────────────────────────────────────────────────────────────────
