@@ -13,7 +13,7 @@ import asyncio
 import json
 import re
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -196,8 +196,9 @@ class Database:
     lifetime of the FastAPI app (opened in lifespan, closed on shutdown).
     """
 
-    def __init__(self, db_path: Path = DB_PATH):
+    def __init__(self, db_path: Path = DB_PATH, *, seed_defaults=True):
         self.db_path = str(db_path)
+        self.seed_defaults = seed_defaults
         self._conn: Optional[aiosqlite.Connection] = None
         self._lock = asyncio.Lock()
 
@@ -277,7 +278,7 @@ class Database:
             # Seed default aquaculture tanks if table is fresh
             cursor_tanks_cnt = await self._conn.execute("SELECT COUNT(*) AS c FROM tanks")
             tank_count = (await cursor_tanks_cnt.fetchone())["c"]
-            if tank_count == 0:
+            if tank_count == 0 and self.seed_defaults:
                 default_tanks = [
                     ("TANK-01", "Monitoring Channel (Blue Tub - 60L)", "sample.mp4", 150, 0, 2.5, 0.08, "active"),
                     ("TANK-02", "Nursery Pond Unit (Size #24 Fry)", "0", 5000, 0, 1.2, 0.08, "active"),
@@ -302,7 +303,7 @@ class Database:
                 """INSERT OR REPLACE INTO sessions
                    (session_id, start_time, source_type, model_name, tub_capacity)
                    VALUES (?, ?, ?, ?, ?)""",
-                (session_id, datetime.now().isoformat(), source_type,
+                (session_id, datetime.now(timezone(timedelta(hours=8))).isoformat(), source_type,
                  model_name, tub_capacity),
             )
             await self._conn.commit()
@@ -336,7 +337,7 @@ class Database:
         Returns the new event ID.
         """
         async with self._lock:
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
             cursor = await self._conn.execute(
                 """INSERT INTO detection_events
                    (session_id, timestamp, frame_idx, fingerling_count,
@@ -406,7 +407,7 @@ class Database:
         params = []
         where = ""
         if hours:
-            cutoff = (datetime.now() - timedelta(hours=hours)).strftime(
+            cutoff = (datetime.now(timezone(timedelta(hours=8))) - timedelta(hours=hours)).strftime(
                 "%Y-%m-%d %H:%M:%S"
             )
             where = "WHERE timestamp >= ?"
@@ -831,7 +832,7 @@ class Database:
                     tp, fp, fn, total_images, details_json)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    datetime.now().isoformat(),
+                    datetime.now(timezone(timedelta(hours=8))).isoformat(),
                     result.get("model_name", ""),
                     result.get("dataset_path", ""),
                     result.get("conf", 0.25),
@@ -886,7 +887,7 @@ class Database:
     async def save_evaluation_benchmark(self, bench: dict) -> int:
         """Persist a single academic evaluation benchmark record (with optional rendered boxes)."""
         async with self._lock:
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
             mape_val = float(bench.get("mape", 0.0))
             acc_pct = float(bench.get("accuracy_pct", round(max(0.0, 100.0 - mape_val), 2)))
             inf_ms = float(bench.get("inference_ms", 0.0))
@@ -914,7 +915,7 @@ class Database:
                 (
                     bench.get("timestamp") or now,
                     bench.get("model_name", ""),
-                    float(bench.get("confidence_threshold", 0.5)),
+                    float(bench.get("confidence_threshold", 0.5)) if bench.get("confidence_threshold", 0.5) is not None else None,
                     float(bench.get("iou_threshold", 0.5)),
                     int(bench.get("actual_count", 0)),
                     int(bench.get("predicted_count", 0)),
@@ -1044,7 +1045,7 @@ class Database:
                     int(width),
                     int(height),
                     json.dumps(gt_boxes) if gt_boxes else None,
-                    datetime.now().isoformat(),
+                    datetime.now(timezone(timedelta(hours=8))).isoformat(),
                 ),
             )
             await self._conn.commit()
@@ -1340,7 +1341,7 @@ class Database:
         if mortality_count < 0:
             raise ValueError("Mortality count cannot be negative.")
 
-        batch_code = (data.get("batch_code") or "").strip() or f"BATCH-{datetime.now().strftime('%Y%m%d')}"
+        batch_code = (data.get("batch_code") or "").strip() or f"BATCH-{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d')}"
         recipient = (data.get("recipient") or "").strip()
         if not recipient:
             recipient = "Market Buyer"
@@ -1354,7 +1355,7 @@ class Database:
             price_unit = "per_fish"
 
         unit_price_php = float(data.get("unit_price_php", 0.0))
-        ts_str = (data.get("timestamp") or data.get("date") or "").strip() or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ts_str = (data.get("timestamp") or data.get("date") or "").strip() or datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
 
         async with self._lock:
             # 1. Verify dispersal_id uniqueness
@@ -1571,7 +1572,7 @@ class Database:
         )
         trend_rows = await cursor_trends.fetchall()
         daily_trends = []
-        today = datetime.now()
+        today = datetime.now(timezone(timedelta(hours=8)))
         for i in range(6, -1, -1):
             day_dt = today - timedelta(days=i)
             day_str = day_dt.strftime("%Y-%m-%d")
@@ -1637,7 +1638,7 @@ class Database:
         active_tank_ids = [tank_id] if (tank_id and tank_id != "all" and tank_id in tanks_map) else list(tanks_map.keys())
 
         # Build list of days in chronological order
-        today = datetime.now()
+        today = datetime.now(timezone(timedelta(hours=8)))
         dates_list = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days - 1, -1, -1)]
 
         # Fetch actual logs from tank_production_logs

@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Optional, Union
 import numpy as np
+import torch
 
 # ---------------------------------------------------------------------------
 # IoU helper
@@ -549,6 +550,7 @@ class ModelEvaluator:
         gt_count: Optional[int] = None,
         gt_boxes: Optional[list[list[float]]] = None,
         source_name: str = "sample",
+        profiles: Optional[dict] = None,
     ) -> dict:
         """
         Evaluate one or more models on a single frame with complete academic metrics.
@@ -562,8 +564,10 @@ class ModelEvaluator:
             if name not in self._pool:
                 continue
             model = self._pool[name]
+            fixed = (profiles or {}).get(name, {"conf": conf, "iou": iou_thresh})
             t0 = time.perf_counter()
-            res = model(frame, verbose=False, conf=conf, iou=iou_thresh)
+            res = model(frame, verbose=False, conf=fixed["conf"], iou=fixed["iou"], imgsz=640, max_det=1000,
+                        device=0 if torch.cuda.is_available() else "cpu")
             t1 = time.perf_counter()
             lat_ms = (t1 - t0) * 1000.0
 
@@ -585,13 +589,13 @@ class ModelEvaluator:
                 pred_boxes=boxes,
                 gt_boxes=gt_boxes,
                 gt_count=gt_count,
-                iou_thresh=iou_thresh,
+                iou_thresh=0.5,
             )
 
             metrics.update({
                 "model_name": name,
-                "confidence_threshold": conf,
-                "iou_threshold": iou_thresh,
+                "confidence_threshold": fixed["conf"],
+                "iou_threshold": fixed["iou"],
                 "avg_confidence": round(avg_cf, 3),
                 "inference_ms": round(lat_ms, 1),
                 "boxes": boxes,
@@ -612,4 +616,3 @@ class ModelEvaluator:
             "gt_count": gt_count if gt_count is not None else (len(gt_boxes) if gt_boxes is not None else None),
             "has_gt_boxes": gt_boxes is not None and len(gt_boxes) > 0,
         }
-

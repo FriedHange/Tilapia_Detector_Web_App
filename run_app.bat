@@ -102,15 +102,20 @@ if not exist "models\" (
 :: ── 6. Open browser after a short delay ─────────────────────────────────────
 echo.
 echo  [INFO] Starting server at http://localhost:8000
-echo  [INFO] Dashboard will open automatically in your browser.
 echo  [INFO] Press CTRL+C to stop the server.
 echo.
 
 :: Open browser after 2-second delay (runs in background)
-start "" cmd /c "timeout /t 2 >nul && start http://localhost:8000"
+python -c "from production_launcher import enabled; import sys; sys.exit(0 if enabled() else 1)" >nul 2>&1
+if errorlevel 1 (
+    echo  [INFO] Dashboard will open automatically in your browser.
+    start "" cmd /c "timeout /t 2 >nul && start http://localhost:8000"
+) else (
+    echo  [INFO] Production Mode is on. Background monitoring starts without opening a browser.
+)
 
 :: ── 7. Launch FastAPI server ─────────────────────────────────────────────────
-python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload --log-level info
+python production_launcher.py
 
 :: If the server exits cleanly
 echo.

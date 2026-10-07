@@ -128,6 +128,20 @@ class FingerlngTracker:
     # Core update
     # ------------------------------------------------------------------
 
+    def update_fused(self, detections, frame_w, frame_h):
+        """Track the deduplicated ensemble, including detections from every member."""
+        from types import SimpleNamespace
+        coordinates = np.array([[b["x1"], b["y1"], b["x2"], b["y2"]] for b in detections], dtype=float).reshape(-1, 4)
+        class Boxes:
+            xyxy = coordinates
+            conf = np.array([b["conf"] for b in detections], dtype=float)
+            cls = np.zeros(len(detections), dtype=int)
+            id = None
+            def __len__(self):
+                return len(self.conf)
+        enriched = self.update(SimpleNamespace(boxes=Boxes(), names={0: "Tilapia fingerling"}), frame_w, frame_h, conf_thresh=0)
+        return [{**box, **tracking} for box, tracking in zip(detections, enriched)]
+
     def update(
         self,
         results,   # Ultralytics Results object (single frame)

@@ -35,8 +35,11 @@ import re
 import statistics
 import time
 import uuid
+import os
+import secrets
+from functools import wraps
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -44,18 +47,27 @@ import cv2
 import numpy as np
 from fastapi import (
     FastAPI, WebSocket, WebSocketDisconnect,
-    UploadFile, File, Form, HTTPException, BackgroundTasks,
+    UploadFile, File, Form, HTTPException, BackgroundTasks, Query,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 import torch
 from ultralytics import YOLO
 
-from database import Database, db
+from database import Database
+from farm_database import FarmDatabase, TankPopulationChanged
+from access import (accounts, DatabaseProxy, StateProxy, current_actor, current_database,
+                    current_session, current_farm, digest)
+from detection_profile import (load_profile, settings_for, fingerprint, public_value,
+                               INFERENCE_LOCK, DETECTORS)
+
+db = DatabaseProxy(FarmDatabase(Path(__file__).parent / "tilapia_web_analytics.db", seed=True))
 from evaluator import ModelEvaluator, parse_yolo_label_text, compute_academic_metrics
 from tracker import FingerlngTracker, nms_dedup
+from monitoring import TankCapture, capture_io
+from production import ProductionMonitor
 
 # ---------------------------------------------------------------------------
 # Device Detection (NVIDIA GPU / CUDA)
@@ -115,12 +127,12 @@ class AppState:
 
         self.stream_max_dimension: int = 640  # Max dimension for live stream & inference (e.g. 640x360)
         self.inference_stride: int = 2        # 1 = every frame, 2 = every 2nd frame (smooth motion, 2x throughput)
-        self.monitoring_mode: str = "turbo_v8" # turbo_v8, turbo_v10, accuracy_v9, ensemble
+        self.monitoring_mode: str = "ensemble"
 
         # Live Classification Overlay Display Controls
         self.show_boxes: bool = True
         self.show_labels: bool = True
-        self.show_conf: bool = True
+        self.show_conf: bool = False
         self.show_trails: bool = True
 
     def record_frame_time(self):
@@ -147,7 +159,16 @@ class AppState:
         return round(pct, 1), status
 
 
-state = AppState()
+state = StateProxy(AppState())
+_SESSION_STATES = {}
+
+
+def serialized_inference(function):
+    @wraps(function)
+    def run(*args, **kwargs):
+        with INFERENCE_LOCK:
+            return function(*args, **kwargs)
+    return run
 
 # ---------------------------------------------------------------------------
 # Lifespan — DB connect/close + auto-load models
@@ -155,35 +176,47 @@ state = AppState()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan: open DB → auto-load models → yield → close DB."""
-    await db.connect()
+    await accounts.connect()
+    db.fallback = await accounts.get_database("legacy")
     _auto_load_models()
-    yield
-    await db.close()
+    app.state.production = ProductionMonitor(accounts, AppState, _process_frame_payload,
+        lambda: len(state.active_models)==len(DETECTORS))
+    await app.state.production.start()
+    try:
+        yield
+    finally:
+        await app.state.production.close()
+        _SESSION_STATES.clear()
+        await accounts.close()
 
 
 def _auto_load_models():
     """Load all .pt files from MODELS_DIR on startup."""
     if not MODELS_DIR.exists():
         return
+    profile = load_profile()
     for pt in sorted(MODELS_DIR.glob("*.pt")):
         name = pt.stem
+        if name not in DETECTORS:
+            continue
+        expected = profile.get("models", {}).get(name, {}).get("weight_sha256")
+        if profile.get("calibrated") and expected:
+            checksum = hashlib.sha256()
+            with pt.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    checksum.update(block)
+            if checksum.hexdigest() != expected:
+                print(f"[BOOT] Calibration does not match {name}; recalibrate before enabling this engine.")
+                state.model_pool.pop(name, None)
+                continue
         if name not in state.model_pool:
             try:
                 state.model_pool[name] = YOLO(str(pt))
                 print(f"[BOOT] Loaded model: {name} (device={state.device_name})")
             except Exception as e:
                 print(f"[BOOT] Failed to load {name}: {e}")
-    # Default live monitoring to high-performance nano model (yolov8n) instead of running all 3 simultaneously
-    if not state.active_models:
-        if "yolov8n" in state.model_pool:
-            state.active_models = ["yolov8n"]
-            state.monitoring_mode = "turbo_v8"
-        elif "yolov10n" in state.model_pool:
-            state.active_models = ["yolov10n"]
-            state.monitoring_mode = "turbo_v10"
-        elif state.model_pool:
-            state.active_models = [list(state.model_pool.keys())[0]]
-            state.monitoring_mode = "single"
+    state.active_models = [name for name in DETECTORS if name in state.model_pool]
+    state.monitoring_mode = "ensemble"
 
 
 # ---------------------------------------------------------------------------
@@ -191,21 +224,21 @@ def _auto_load_models():
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="Tilapia Fingerling Counter",
-    description="Aquaculture monitoring dashboard — YOLOv8/v9/v10 comparison",
+    description="Private farm management and automated fingerling counting",
     version="2.0.0",
     lifespan=lifespan,
+    docs_url=None, redoc_url=None, openapi_url=None,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 @app.middleware("http")
 async def add_cache_control_headers(request: Request, call_next):
@@ -221,6 +254,7 @@ templates = None  # HTML is served directly (no Jinja2 needed)
 # ---------------------------------------------------------------------------
 # Utility — run model inference (sync, called in thread executor)
 # ---------------------------------------------------------------------------
+@serialized_inference
 def _infer_frame(
     frame: np.ndarray,
     tracker_enabled: bool = True,
@@ -241,8 +275,9 @@ def _infer_frame(
     all_boxes: list[dict] = []
     raw_per_model: list[dict] = []
     first_results_obj = None
-    conf = state.conf if conf is None else conf
-    iou = state.iou if iou is None else iou
+    profile = load_profile()
+    explicit_conf, explicit_iou = conf, iou
+    iou = profile["ensemble_iou"] if iou is None else iou
     active_models = list(state.active_models if active_models is None else active_models)
 
     for model_name in active_models:
@@ -250,19 +285,22 @@ def _infer_frame(
         if model is None:
             continue
         t0 = time.perf_counter()
+        fixed = settings_for(model_name, profile)
+        model_conf = fixed["conf"] if explicit_conf is None else explicit_conf
+        model_iou = fixed["iou"] if explicit_iou is None else explicit_iou
         try:
             if tracker_enabled:
                 results = model.track(
                     frame,
                     verbose=False,
-                    conf=conf,
-                    iou=iou,
+                    conf=model_conf,
+                    iou=model_iou,
                     persist=True,
                     tracker="bytetrack.yaml",
                     device=state.device,
                 )
             else:
-                results = model(frame, verbose=False, conf=conf, iou=iou, device=state.device)
+                results = model(frame, verbose=False, conf=model_conf, iou=model_iou, device=state.device, imgsz=640, max_det=1000)
 
             t1 = time.perf_counter()
             lat_ms = (t1 - t0) * 1000.0
@@ -280,6 +318,9 @@ def _infer_frame(
                 for i in range(len(r.boxes)):
                     x1, y1, x2, y2 = r.boxes.xyxy[i].tolist()
                     cls_id = int(r.boxes.cls[i])
+                    class_name = str(names.get(cls_id, "")).lower()
+                    if "tilapia" not in class_name and "fingerling" not in class_name:
+                        continue
                     conf_val = float(r.boxes.conf[i])
                     tid = None
                     if r.boxes.id is not None:
@@ -289,8 +330,8 @@ def _infer_frame(
                         {
                             "model": model_name,
                             "track_id": tid,
-                            "class_id": cls_id,
-                            "class_name": names.get(cls_id, str(cls_id)),
+                            "class_id": 0,
+                            "class_name": "Tilapia fingerling",
                             "conf": conf_val,
                             "x1": x1, "y1": y1, "x2": x2, "y2": y2,
                         }
@@ -321,7 +362,7 @@ def _annotate_frame(
     tracker: FingerlngTracker,
     show_boxes: bool = True,
     show_labels: bool = True,
-    show_conf: bool = True,
+    show_conf: bool = False,
     show_trails: bool = True,
 ) -> np.ndarray:
     """
@@ -637,23 +678,14 @@ async def set_active_models(body: dict):
 @app.get("/api/config")
 async def get_config():
     (rx1, ry1), (rx2, ry2) = state.tracker._line_rel
-    return {
-        "conf": state.conf,
-        "iou": state.iou,
-        "tub_capacity": state.tub_capacity,
-        "line": {"rx1": rx1, "ry1": ry1, "rx2": rx2, "ry2": ry2},
-        "device": str(state.device),
-        "device_name": state.device_name,
-        "is_cuda": torch.cuda.is_available(),
-    }
+    return {"tub_capacity": state.tub_capacity, "line": {"rx1": rx1, "ry1": ry1, "rx2": rx2, "ry2": ry2},
+        "settings_fixed": True}
 
 
 @app.post("/api/config")
 async def update_config(body: dict):
-    if "conf" in body:
-        state.conf = float(body["conf"])
-    if "iou" in body:
-        state.iou = float(body["iou"])
+    if set(body) & {"conf", "iou", "active_models"}:
+        raise HTTPException(422, "Counting settings are fixed by calibration.")
     if "tub_capacity" in body:
         state.tub_capacity = int(body["tub_capacity"])
     if "line" in body:
@@ -699,38 +731,10 @@ def _process_frame_worker(
         frame = cv2.resize(frame, (int(round(w * scale)), int(round(h * scale))), interpolation=cv2.INTER_AREA)
         h, w = frame.shape[:2]
 
-    settings = (conf, iou, tuple(active_models))
+    settings = (conf, iou, tuple(active_models), fingerprint())
     if run_inference or cached_result is None or cached_result.get("settings") != settings:
         raw_per_model, deduped, raw_results = _infer_frame(frame, False, conf, iou, active_models)
-        if raw_results is not None:
-            tracked_dets = tracker.update(raw_results, w, h, conf_thresh=conf)
-            unmatched = tracked_dets.copy()
-            for box in deduped:
-                # The inference path uses model.predict, so its boxes have no
-                # Ultralytics track IDs. Match the tracker's first-model boxes
-                # back to the displayed (possibly cross-model deduplicated) boxes.
-                def overlap(det):
-                    ix1 = max(box["x1"], det["x1"])
-                    iy1 = max(box["y1"], det["y1"])
-                    ix2 = min(box["x2"], det["x2"])
-                    iy2 = min(box["y2"], det["y2"])
-                    intersection = max(0, ix2 - ix1) * max(0, iy2 - iy1)
-                    box_area = max(0, box["x2"] - box["x1"]) * max(0, box["y2"] - box["y1"])
-                    det_area = max(0, det["x2"] - det["x1"]) * max(0, det["y2"] - det["y1"])
-                    union = box_area + det_area - intersection
-                    return intersection / union if union else 0.0
-
-                match = max(unmatched, key=overlap) if unmatched else None
-                if match is not None and overlap(match) >= 0.5:
-                    unmatched.remove(match)
-                    box["track_id"] = match["track_id"]
-                    box["trail"] = match["trail"]
-                    box["crossed_in"] = match["crossed_in"]
-                    box["crossed_out"] = match["crossed_out"]
-                else:
-                    box["trail"] = []
-                    box["crossed_in"] = False
-                    box["crossed_out"] = False
+        deduped = tracker.update_fused(deduped, w, h)
         new_cached = {
             "raw_per_model": raw_per_model,
             "deduped": deduped,
@@ -749,6 +753,9 @@ def _process_frame_worker(
         show_trails=show_trails,
     )
     frame_b64 = _frame_to_b64(annotated, 72)
+    # One raw preview per processed frame serves every viewer's own overlay choices.
+    new_cached['raw_frame'] = _frame_to_b64(frame, 72)
+    new_cached['frame_width'],new_cached['frame_height'] = w,h
     return frame_b64, raw_per_model, deduped, new_cached
 
 
@@ -766,14 +773,14 @@ async def _process_frame_payload(
     state.record_frame_time()
 
     # Execute downscale/inference/tracking/annotation/encoding in one thread dispatch
-    frame_b64, raw_per_model, deduped, new_cached_result = await asyncio.to_thread(
+    frame_b64, raw_per_model, deduped, new_cached_result = await capture_io(
         _process_frame_worker,
         frame,
         run_inference,
         cached_result,
         state.tracker,
-        state.conf,
-        state.iou,
+        None,
+        None,
         state.active_models,
         state.stream_max_dimension,
         state.show_boxes,
@@ -806,8 +813,7 @@ async def _process_frame_payload(
         track_ids = [d.get("track_id") for d in deduped if d.get("track_id")]
         t_id = tank.get("tank_id") if tank else "TANK-01"
         t_name = tank.get("name") if tank else "Monitoring Channel (Blue Tub - 60L)"
-        asyncio.create_task(
-            db.log_event(
+        await db.log_event(
                 session_id=session_id,
                 source=source_name,
                 frame_idx=frame_idx,
@@ -825,7 +831,6 @@ async def _process_frame_payload(
                 tank_name=t_name,
                 save_boxes=False,
             )
-        )
         new_last_db_log = now
 
     # Slim down detection list for JSON
@@ -838,6 +843,7 @@ async def _process_frame_payload(
             "x2": round(d["x2"]), "y2": round(d["y2"]),
             "crossed_in": d.get("crossed_in", False),
             "crossed_out": d.get("crossed_out", False),
+            "trail": [[float(x),float(y)] for x,y in d.get('trail',[])],
         }
         for d in deduped
     ]
@@ -849,9 +855,14 @@ async def _process_frame_payload(
         "count_out":             state.tracker.count_out,
         "fps":                   round(fps, 1),
         "density_pct":           density_pct,
+        "occupancy_pct":         density_pct,
+        "last_frame_at":         datetime.now(timezone(timedelta(hours=8))).isoformat(),
         "status":                status_level,
         "avg_conf":              round(avg_conf, 3),
         "frame":                 frame_b64,
+        "raw_frame":             new_cached_result['raw_frame'],
+        "frame_width":           new_cached_result['frame_width'],
+        "frame_height":          new_cached_result['frame_height'],
         "detections":            det_slim,
         "model_metrics":         raw_per_model,
         "frame_idx":             frame_idx,
@@ -868,8 +879,11 @@ async def _process_frame_payload(
 
 async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] = None):
     """Unified WebSocket handler supporting tank-specific streams and routing."""
+    if initial_tank_id and not await db.get_tank(initial_tank_id):
+        await ws.close(code=4404)
+        return
     await ws.accept()
-    session_id = f"ws_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    session_id = f"ws_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     frame_idx = 0
     last_db_log = 0.0
     current_tank = await db.get_tank(initial_tank_id) if initial_tank_id else None
@@ -878,73 +892,78 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
     stream_running = asyncio.Event()
     cached_client_result: Optional[dict] = None
 
+    async def stream_state(status, message="", **extra):
+        await ws.send_text(json.dumps({"type": "stream_state", "status": status,
+            "tank_id": current_tank.get("tank_id") if current_tank else None,
+            "message": message, **extra}))
+
+    async def stop_stream(acknowledge=True):
+        stream_running.clear()
+        if server_stream_task and not server_stream_task.done():
+            server_stream_task.cancel()
+            try:
+                await server_stream_task
+            except asyncio.CancelledError:
+                pass
+        if acknowledge:
+            await stream_state("stopped", "Monitoring stopped.")
+
     async def _stream_loop(source_val):
-        nonlocal frame_idx, last_db_log, current_tank
-        cap = None
+        nonlocal frame_idx, last_db_log
+        capture = TankCapture(source_val)
         cached_result = None
+        playback_cycle = 0
         try:
-            # If digit or int, treat as camera device index
-            if isinstance(source_val, int) or (isinstance(source_val, str) and source_val.isdigit()):
-                dev_idx = int(source_val)
-                cap = await asyncio.to_thread(cv2.VideoCapture, dev_idx, cv2.CAP_DSHOW)
-                if not cap or not cap.isOpened():
-                    if cap:
-                        cap.release()
-                    cap = await asyncio.to_thread(cv2.VideoCapture, dev_idx)
-            else:
-                resolved_src = source_val
-                if isinstance(source_val, str) and not source_val.startswith("rtsp://") and not source_val.startswith("http://") and not source_val.startswith("https://"):
-                    p = Path(source_val)
-                    if not p.is_absolute():
-                        cand = BASE_DIR / p
-                        if cand.exists():
-                            resolved_src = str(cand)
-                cap = await asyncio.to_thread(cv2.VideoCapture, resolved_src)
-
-            if not cap or not cap.isOpened():
-                await ws.send_text(json.dumps({
-                    "type": "error",
-                    "message": f"Could not open camera/stream source: {source_val}"
-                }))
+            await stream_state("starting", "Opening the tank source.", source_kind=capture.kind)
+            if not await capture_io(capture.open):
+                await stream_state("error", "Could not open this tank source. Check its settings or whether the camera is in use.")
                 return
-
-            await ws.send_text(json.dumps({
-                "type": "info",
-                "message": f"Camera stream active: {source_val}",
-                "tank_id": current_tank.get("tank_id") if current_tank else None
-            }))
-
+            await stream_state("running", "Monitoring active.", source_kind=capture.kind, playback_cycle=0)
+            interval = await capture_io(capture.frame_interval) if capture.kind == "video" else .005
             while stream_running.is_set():
-                ret, frame = await asyncio.to_thread(cap.read)
+                if app.state.production.enabled:
+                    await ws.close(code=1012)
+                    break
+                if not await accounts.authenticate(ws.cookies.get("tilapia_session")):
+                    await ws.close(code=4401)
+                    break
+                started = time.monotonic()
+                ret, frame = await capture_io(capture.read)
                 if not ret or frame is None:
-                    if isinstance(source_val, str) and not source_val.startswith("rtsp"):
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    await asyncio.sleep(0.04)
-                    continue
-
+                    if capture.kind != "video":
+                        await stream_state("error", "The camera stopped sending frames. Check its connection and restart.")
+                        break
+                    await capture_io(capture.rewind)
+                    ret, frame = await capture_io(capture.read)
+                    if not ret or frame is None:
+                        await stream_state("error", "This video contains no readable footage. Choose another video.")
+                        break
+                    playback_cycle += 1
+                    state.tracker.reset_counts()
+                    cached_result = None
+                    await stream_state("running", "Recorded video restarted; crossings reset.",
+                        source_kind="video", playback_cycle=playback_cycle)
                 if not state.active_models:
-                    await asyncio.sleep(0.1)
-                    continue
-
+                    await stream_state("error", "Counting is unavailable. Ask Admin to check the counting service.")
+                    break
                 frame_idx += 1
                 do_inference = (frame_idx % state.inference_stride == 0) or (cached_result is None)
                 telemetry, last_db_log, cached_result = await _process_frame_payload(
-                    frame, session_id, frame_idx, last_db_log, f"cam_{source_val}",
-                    tank=current_tank, run_inference=do_inference, cached_result=cached_result
-                )
-                await ws.send_text(json.dumps(telemetry))
-                await asyncio.sleep(0.005)
-
+                    frame, session_id, frame_idx, last_db_log, "tank_" + capture.kind,
+                    tank=current_tank, run_inference=do_inference, cached_result=cached_result)
+                telemetry.update(source_kind=capture.kind, playback_cycle=playback_cycle)
+                await ws.send_text(json.dumps(public_value(telemetry)))
+                await asyncio.sleep(max(.005, interval - (time.monotonic() - started)))
         except asyncio.CancelledError:
             pass
-        except Exception as err:
+        except Exception:
             try:
-                await ws.send_text(json.dumps({"type": "error", "message": f"Stream error: {err}"}))
+                await stream_state("error", "Monitoring failed. Check this tank's source and restart.")
             except Exception:
                 pass
         finally:
-            if cap:
-                await asyncio.to_thread(cap.release)
+            stream_running.clear()
+            await capture_io(capture.release)
 
     try:
         if current_tank:
@@ -957,11 +976,15 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
             raw = await ws.receive_text()
             msg = json.loads(raw)
             msg_type = msg.get("type", "")
+            if not await accounts.authenticate(ws.cookies.get("tilapia_session")):
+                await ws.close(code=4401)
+                break
 
             # --- Tank association ---
             if msg_type == "set_tank":
                 tid = msg.get("tank_id")
                 if tid:
+                    await stop_stream(acknowledge=False)
                     current_tank = await db.get_tank(tid)
                     if current_tank:
                         await ws.send_text(json.dumps({
@@ -971,11 +994,11 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                 continue
 
             # --- Control messages ---
-            if msg_type == "set_conf":
-                state.conf = float(msg.get("value", state.conf))
-                continue
-            if msg_type == "set_iou":
-                state.iou = float(msg.get("value", state.iou))
+            if not await accounts.authenticate(ws.cookies.get("tilapia_session")):
+                await ws.close(code=4401)
+                break
+            if msg_type in ("set_conf", "set_iou", "set_models"):
+                await ws.send_text(json.dumps({"type": "error", "message": "Counting settings are fixed by calibration."}))
                 continue
             if msg_type == "set_capacity":
                 state.tub_capacity = int(msg.get("value", state.tub_capacity))
@@ -985,10 +1008,6 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                     float(msg.get("rx1", 0.5)), float(msg.get("ry1", 0.0)),
                     float(msg.get("rx2", 0.5)), float(msg.get("ry2", 1.0)),
                 )
-                continue
-            if msg_type == "set_models":
-                names = msg.get("active", [])
-                state.active_models = [n for n in names if n in state.model_pool]
                 continue
             if msg_type == "set_overlay":
                 if "show_boxes" in msg:
@@ -1010,34 +1029,42 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
 
             # --- Server stream start/stop ---
             if msg_type == "start_stream":
-                if server_stream_task and not server_stream_task.done():
-                    stream_running.clear()
-                    server_stream_task.cancel()
-                    try:
-                        await server_stream_task
-                    except Exception:
-                        pass
+                if app.state.production.enabled:
+                    await ws.close(code=1012)
+                    break
+                await stop_stream(acknowledge=False)
+                if current_tank:
+                    current_tank = await db.get_tank(current_tank["tank_id"])
+                if not current_tank or current_tank["status"] == "inactive":
+                    await stream_state("error", "Select an active tank first.")
+                    continue
+                try:
+                    src_val = validate_source(current_tank["camera_source"], current_farm.get())
+                    if not src_val:
+                        raise ValueError("Set a camera or upload a video for this tank first.")
+                except ValueError as exc:
+                    await stream_state("error", str(exc))
+                    continue
+                state.tracker.reset_counts()
+                state._frame_times.clear()
                 stream_running.set()
-                src_val = msg.get("source")
-                if src_val is None or src_val == "":
-                    src_val = current_tank.get("camera_source", 0) if current_tank else 0
                 server_stream_task = asyncio.create_task(_stream_loop(src_val))
                 continue
 
             if msg_type == "stop_stream":
-                stream_running.clear()
-                if server_stream_task and not server_stream_task.done():
-                    server_stream_task.cancel()
-                    try:
-                        await server_stream_task
-                    except Exception:
-                        pass
+                await stop_stream()
                 continue
 
             # --- Client Frame message ---
             if msg_type != "frame":
                 continue
+            if app.state.production.enabled:
+                await ws.close(code=1012)
+                break
 
+            if not current_tank:
+                await ws.send_text(json.dumps({"type": "error", "message": "Select a tank before counting."}))
+                continue
             b64 = msg.get("data", "")
             frame = await asyncio.to_thread(_b64_to_frame, b64)
             if frame is None:
@@ -1056,7 +1083,7 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                 frame, session_id, frame_idx, last_db_log, src_tag,
                 tank=current_tank, run_inference=do_inference, cached_result=cached_client_result
             )
-            await ws.send_text(json.dumps(telemetry))
+            await ws.send_text(json.dumps(public_value(telemetry)))
 
     except WebSocketDisconnect:
         pass
@@ -1066,32 +1093,31 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
         except Exception:
             pass
     finally:
-        stream_running.clear()
-        if server_stream_task and not server_stream_task.done():
-            server_stream_task.cancel()
-            try:
-                await server_stream_task
-            except Exception:
-                pass
+        await stop_stream(acknowledge=False)
 
 
 @app.websocket("/ws/live/{tank_id}")
 async def websocket_live_tank(ws: WebSocket, tank_id: str):
-    await _handle_websocket_live(ws, tank_id)
+    await _protected_websocket(ws, tank_id)
 
 
 @app.websocket("/ws/live")
 async def websocket_live(ws: WebSocket):
-    await _handle_websocket_live(ws, None)
+    await _protected_websocket(ws, None)
 
 
 # ---------------------------------------------------------------------------
 # REST — image upload detection
 # ---------------------------------------------------------------------------
 @app.post("/api/upload/image")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(file: UploadFile = File(...), tank_id: Optional[str] = Form(None)):
     if not state.active_models:
         raise HTTPException(400, "No active models loaded")
+    tank = await db.get_tank(tank_id) if tank_id else None
+    if tank_id and not tank:
+        raise HTTPException(404, "Tank not found.")
+    if tank:
+        state.tub_capacity = tank["max_capacity"]
 
     contents = await file.read()
     arr = np.frombuffer(contents, dtype=np.uint8)
@@ -1108,7 +1134,7 @@ async def upload_image(file: UploadFile = File(...)):
     density_pct, status_level = state.density_info(live_count)
 
     # DB log
-    session_id = f"img_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    session_id = f"img_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}"
     event_id = await db.log_event(
         session_id=session_id,
         source="image_upload",
@@ -1122,6 +1148,8 @@ async def upload_image(file: UploadFile = File(...)):
         boxes=deduped,
         track_ids=[],
         model_metrics=raw_per_model,
+        tank_id=tank_id,
+        tank_name=tank["name"] if tank else None,
     )
 
     # In-memory cache for dynamic slider tuning and instant evaluation
@@ -1143,6 +1171,8 @@ async def upload_image(file: UploadFile = File(...)):
             for d in deduped
         ],
         "annotated_frame": frame_b64,
+        "raw_frame": await asyncio.to_thread(_frame_to_b64, frame, 85),
+        "frame_width": frame.shape[1], "frame_height": frame.shape[0],
         "filename": file.filename,
     })
 
@@ -1162,12 +1192,8 @@ async def reprocess_current(body: Optional[dict] = None):
 
     params = body or {}
 
-    if "conf" in params:
-        state.conf = float(params["conf"])
-    if "iou" in params:
-        state.iou = float(params["iou"])
-    if "active_models" in params and isinstance(params["active_models"], list):
-        state.active_models = [m for m in params["active_models"] if m in state.model_pool]
+    if set(params) & {"conf", "iou", "active_models"}:
+        raise HTTPException(422, "Counting settings are fixed by calibration.")
 
     raw_per_model, deduped, _ = await asyncio.to_thread(_infer_frame, state.cached_frame, False)
     annotated = await asyncio.to_thread(_annotate_frame, state.cached_frame, deduped, state.tracker)
@@ -1189,6 +1215,8 @@ async def reprocess_current(body: Optional[dict] = None):
             for d in deduped
         ],
         "annotated_frame": frame_b64,
+        "raw_frame": await asyncio.to_thread(_frame_to_b64, state.cached_frame, 85),
+        "frame_width": state.cached_frame.shape[1], "frame_height": state.cached_frame.shape[0],
         "filename": state.cached_filename,
         "conf": state.conf,
         "iou": state.iou,
@@ -1211,6 +1239,13 @@ async def cached_image_status():
 # ---------------------------------------------------------------------------
 # REST — video upload detection (SSE streaming progress)
 # ---------------------------------------------------------------------------
+def _video_suffix(filename):
+    suffix = Path(filename or "").suffix.lower()
+    if suffix not in (".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".mpeg", ".mpg", ".wmv"):
+        raise HTTPException(400, "Choose a supported video file, such as MP4, MOV or AVI.")
+    return suffix
+
+
 @app.post("/api/upload/video")
 async def upload_video(file: UploadFile = File(...),
                        background_tasks: BackgroundTasks = None):
@@ -1218,79 +1253,83 @@ async def upload_video(file: UploadFile = File(...),
         raise HTTPException(400, "No active models loaded")
 
     # Save to disk
-    save_path = UPLOAD_DIR / f"{uuid.uuid4().hex}_{file.filename}"
+    save_path = accounts.media_directory(current_farm.get()) / (uuid.uuid4().hex + _video_suffix(file.filename))
     contents = await file.read()
+    if not contents:
+        raise HTTPException(400, "Choose a video that contains footage.")
     save_path.write_bytes(contents)
 
     async def _stream():
         cap = cv2.VideoCapture(str(save_path))
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
         frame_idx = 0
-        session_id = f"vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        session_id = f"vid_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}"
         tracker = FingerlngTracker()
         t_start = time.time()
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame_idx += 1
+        try:
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frame_idx += 1
 
-            raw_per_model, deduped, _ = await asyncio.to_thread(_infer_frame, frame, False)
-            confs = [d["conf"] for d in deduped]
-            avg_conf = statistics.fmean(confs) if confs else 0.0
-            live_count = len(deduped)
-            density_pct, status_level = state.density_info(live_count)
+                raw_per_model, deduped, _ = await asyncio.to_thread(_infer_frame, frame, False)
+                confs = [d["conf"] for d in deduped]
+                avg_conf = statistics.fmean(confs) if confs else 0.0
+                live_count = len(deduped)
+                density_pct, status_level = state.density_info(live_count)
 
-            elapsed = time.time() - t_start
-            calc_fps = round(frame_idx / elapsed, 1) if elapsed > 0.05 else 0.0
+                elapsed = time.time() - t_start
+                calc_fps = round(frame_idx / elapsed, 1) if elapsed > 0.05 else 0.0
 
-            # Log every 5 frames
-            if frame_idx % 5 == 0:
-                await db.log_event(
-                    session_id=session_id,
-                    source="video_upload",
-                    frame_idx=frame_idx,
-                    fingerling_count=live_count,
-                    count_in=0, count_out=0,
-                    avg_conf=avg_conf,
-                    density_pct=density_pct,
-                    status_level=status_level,
-                    model_name=",".join(state.active_models),
-                    boxes=deduped,
-                    track_ids=[],
-                    model_metrics=raw_per_model,
-                )
+                # Log every 5 frames
+                if frame_idx % 5 == 0:
+                    await db.log_event(
+                        session_id=session_id,
+                        source="video_upload",
+                        frame_idx=frame_idx,
+                        fingerling_count=live_count,
+                        count_in=0, count_out=0,
+                        avg_conf=avg_conf,
+                        density_pct=density_pct,
+                        status_level=status_level,
+                        model_name=",".join(state.active_models),
+                        boxes=deduped,
+                        track_ids=[],
+                        model_metrics=raw_per_model,
+                    )
 
-            progress = round(frame_idx / total * 100, 1)
+                progress = round(frame_idx / total * 100, 1)
 
-            # High-throughput preview optimization:
-            # Full YOLO inference runs on EVERY frame, but thumbnail JPEG encoding &
-            # base64 streaming is throttled to ~10 FPS (every 3 frames) + final/first frames.
-            # This prevents SSE event buffer exhaustion and browser DOM freezes on 900+ frames.
-            is_thumb_frame = (frame_idx == 1 or frame_idx % 3 == 0 or frame_idx == total)
-            thumb_b64 = None
-            if is_thumb_frame:
-                annotated = await asyncio.to_thread(_annotate_frame, frame, deduped, tracker)
-                thumb_b64 = await asyncio.to_thread(_frame_to_b64, annotated, 55)
+                # High-throughput preview optimization:
+                # Full YOLO inference runs on EVERY frame, but thumbnail JPEG encoding &
+                # base64 streaming is throttled to ~10 FPS (every 3 frames) + final/first frames.
+                # This prevents SSE event buffer exhaustion and browser DOM freezes on 900+ frames.
+                is_thumb_frame = (frame_idx == 1 or frame_idx % 3 == 0 or frame_idx == total)
+                thumb_b64 = None
+                if is_thumb_frame:
+                    annotated = await asyncio.to_thread(_annotate_frame, frame, deduped, tracker)
+                    thumb_b64 = await asyncio.to_thread(_frame_to_b64, annotated, 55)
 
-            payload_data = {
-                "frame_idx": frame_idx,
-                "total": total,
-                "progress": progress,
-                "live_count": live_count,
-                "density_pct": round(density_pct, 1),
-                "fps": calc_fps,
-                "avg_conf": round(avg_conf, 3),
-                "status": status_level,
-            }
-            if thumb_b64 is not None:
-                payload_data["thumb"] = thumb_b64
+                payload_data = {
+                    "frame_idx": frame_idx,
+                    "total": total,
+                    "progress": progress,
+                    "live_count": live_count,
+                    "density_pct": round(density_pct, 1),
+                    "fps": calc_fps,
+                    "avg_conf": round(avg_conf, 3),
+                    "status": status_level,
+                }
+                if thumb_b64 is not None:
+                    payload_data["thumb"] = thumb_b64
 
-            yield f"data: {json.dumps(payload_data)}\n\n"
+                yield f"data: {json.dumps(payload_data)}\n\n"
 
-        cap.release()
-        save_path.unlink(missing_ok=True)
+        finally:
+            cap.release()
+            save_path.unlink(missing_ok=True)
         yield f"data: {json.dumps({'done': True, 'total_frames': frame_idx})}\n\n"
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
@@ -1306,8 +1345,8 @@ async def upload_tank_video(file: UploadFile = File(...)):
         raise HTTPException(400, "No file provided")
     
     clean_name = re.sub(r'[^a-zA-Z0-9_\.-]', '_', file.filename)
-    unique_name = f"tank_vid_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{clean_name}"
-    save_path = UPLOAD_DIR / unique_name
+    unique_name = f"{uuid.uuid4().hex}{_video_suffix(clean_name)}"
+    save_path = accounts.media_directory(current_farm.get()) / unique_name
     
     contents = await file.read()
     if len(contents) == 0:
@@ -1315,7 +1354,7 @@ async def upload_tank_video(file: UploadFile = File(...)):
     
     save_path.write_bytes(contents)
     size_mb = round(len(contents) / (1024 * 1024), 2)
-    relative_path = f"uploads/{unique_name}"
+    relative_path = str(save_path)
     
     return {
         "status": "success",
@@ -1324,66 +1363,35 @@ async def upload_tank_video(file: UploadFile = File(...)):
         "relative_path": relative_path,
         "size_mb": size_mb,
         "size_bytes": len(contents),
-        "url": f"/{relative_path}"
+        "url": f"/media/{unique_name}?farm_id={current_farm.get()}"
     }
 
 
 @app.get("/api/tanks/available-videos")
 async def get_available_tank_videos():
     """Returns local video files available to be selected as tank camera sources."""
-    videos = []
-    
-    # 1. Root sample.mp4
-    sample_root = BASE_DIR / "sample.mp4"
-    if sample_root.exists():
-        videos.append({
-            "name": "sample.mp4 (Sample Tank Build)",
-            "path": "sample.mp4",
-            "size_mb": round(sample_root.stat().st_size / (1024 * 1024), 2),
-            "category": "sample"
-        })
-        
-    # 2. Videos in static/media/
-    media_dir = STATIC_DIR / "media"
-    if media_dir.exists():
-        for p in sorted(media_dir.glob("*.mp4")):
-            videos.append({
-                "name": f"{p.name} (Static Media)",
-                "path": f"static/media/{p.name}",
-                "size_mb": round(p.stat().st_size / (1024 * 1024), 2),
-                "category": "media"
-            })
-            
-    # 3. Videos in uploads/
-    if UPLOAD_DIR.exists():
-        for p in sorted(UPLOAD_DIR.glob("*.*"), key=lambda x: x.stat().st_mtime, reverse=True):
-            if p.suffix.lower() in [".mp4", ".avi", ".mov", ".mkv", ".webm"]:
-                videos.append({
-                    "name": p.name,
-                    "path": f"uploads/{p.name}",
-                    "size_mb": round(p.stat().st_size / (1024 * 1024), 2),
-                    "category": "upload"
-                })
-                
-    return {"videos": videos}
-
-
-# ---------------------------------------------------------------------------
-# REST — Aquaculture Farm Management Endpoints
-# ---------------------------------------------------------------------------
-@app.get("/api/tanks")
-async def api_get_tanks():
-    """Manage tanks: get real-time biomass, feed KG, and PHP value."""
-    return await db.get_tanks()
+    directory = accounts.media_directory(current_farm.get())
+    return [{"name": file.name, "path": str(file), "url": f"/media/{file.name}?farm_id={current_farm.get()}"}
+            for file in directory.iterdir() if file.suffix.lower() in (".mp4", ".avi", ".mov", ".mkv", ".webm")]
 
 
 @app.post("/api/tanks")
 async def api_create_tank(body: dict):
     """Create a new tank."""
     try:
-        return await db.create_tank(body)
+        production=bool(getattr(app.state,'production',None) and app.state.production.enabled)
+        body=validate_tank_selection(body,current_farm.get(),production)
+        saved=await db.create_tank(body,production=production)
+        if getattr(app.state,'production',None):
+            await app.state.production.sync()
+        return saved
     except ValueError as err:
         raise HTTPException(400, str(err))
+
+
+@app.get("/api/tanks")
+async def api_get_tanks():
+    return await db.get_tanks()
 
 
 @app.get("/api/tanks/{tank_id}")
@@ -1399,20 +1407,31 @@ async def api_get_tank(tank_id: str):
 async def api_update_tank(tank_id: str, body: dict):
     """Update tank specifications or capacity."""
     try:
-        updated = await db.update_tank(tank_id, body)
+        production=bool(getattr(app.state,'production',None) and app.state.production.enabled)
+        body=validate_tank_selection(body,current_farm.get(),production)
+        updated = await db.update_tank(tank_id, body,production=production)
         if not updated:
             raise HTTPException(404, f"Tank '{tank_id}' not found")
+        if getattr(app.state,'production',None):
+            await app.state.production.sync()
         return updated
     except ValueError as err:
         raise HTTPException(400, str(err))
 
 
 @app.delete("/api/tanks/{tank_id}")
-async def api_delete_tank(tank_id: str):
-    """Delete a tank."""
-    deleted = await db.delete_tank(tank_id)
+async def api_delete_tank(tank_id: str, remove_stock: bool = False, expected_count: Optional[int] = Query(None, ge=0)):
+    """Remove from active inventory while retaining history."""
+    try:
+        deleted = await db.delete_tank(tank_id, remove_stock=remove_stock, expected_count=expected_count)
+    except TankPopulationChanged as exc:
+        raise HTTPException(409, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     if not deleted:
         raise HTTPException(404, f"Tank '{tank_id}' not found")
+    if getattr(app.state, 'production', None):
+        await app.state.production.remove_tank(current_farm.get(), tank_id)
     return {"status": "deleted", "tank_id": tank_id}
 
 
@@ -1455,7 +1474,7 @@ async def api_production_report():
 async def export_production_report_csv():
     """Download complete farm production report & dispersal ledger as CSV."""
     import csv, io
-    rep = await db.get_production_report()
+    rep = await db.get_production_report(include_all_dispersals=True)
     tanks = rep.get("population_per_tank", [])
     dispersals = rep.get("dispersals", [])
 
@@ -1464,13 +1483,19 @@ async def export_production_report_csv():
 
     # Section 1: Executive KPI Summary
     writer.writerow(["=== AQUACULTURE FARM PRODUCTION SUMMARY ==="])
-    writer.writerow(["Generated At", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    writer.writerow(["Generated At", datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")])
     writer.writerow(["Total Live Population", rep.get("total_population", 0)])
     writer.writerow(["Total Biomass (KG)", rep.get("total_biomass_kg", 0.0)])
     writer.writerow(["Total Daily Feed (KG/day)", rep.get("total_feed_kg", 0.0)])
     writer.writerow(["Inventory Valuation (PHP)", rep.get("inventory_php_value", 0.0)])
     writer.writerow(["Total Dispersal Sales (PHP)", rep.get("dispersal_earnings", 0.0)])
-    writer.writerow(["Overall Farm Mortality Rate (%)", f"{rep.get('mortality_rate_pct', 0.0)}%"])
+    writer.writerow(["Today's Loss Rate Including Estimates (%)", (f"{rep['mortality_rate_pct']}%" if rep.get("mortality_rate_pct") is not None else "N/A")])
+    writer.writerow(['Estimated Mortality Today',rep.get('estimated_mortality_count',0)])
+    writer.writerow(['Confirmed Deaths Today',rep.get('confirmed_mortality_count',0)])
+    writer.writerow(["Reporting Date", rep.get("report_date")])
+    writer.writerow(["Mortality Checks Recorded", rep.get("mortality_checked_tanks", 0)])
+    writer.writerow(["Tanks Requiring Checks", rep.get("mortality_expected_tanks", 0)])
+    writer.writerow(["Daily Mortality Formula", "Estimated losses plus confirmed deaths / (opening fish + incoming fish) * 100; observation gaps are not zero deaths"])
     writer.writerow([])
 
     # Section 2: Tanks Inventory Breakdown
@@ -1502,7 +1527,7 @@ async def export_production_report_csv():
         ])
 
     csv_content = buf.getvalue()
-    filename = f"tilapia_farm_production_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"tilapia_farm_production_report_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         io.StringIO(csv_content),
         media_type="text/csv",
@@ -1539,7 +1564,8 @@ async def export_mortality_csv(
         writer = csv.writer(buf)
         writer.writerow([
             "date", "tank_id", "tank_name", "population",
-            "mortality_count", "mortality_rate_pct", "severity", "status", "dispersal_id"
+            "mortality_count", "mortality_rate_pct", "severity", "status", "dispersal_id",
+            'estimated_mortality_count','confirmed_mortality_count','valid_monitoring_seconds','observed_monitoring_seconds'
         ])
         for r in records:
             writer.writerow([
@@ -1552,10 +1578,12 @@ async def export_mortality_csv(
                 r.get("severity"),
                 r.get("status_label"),
                 r.get("dispersal_id"),
+                r.get('estimated_mortality_count'),r.get('confirmed_mortality_count'),
+                r.get('valid_monitoring_seconds'),r.get('observed_monitoring_seconds'),
             ])
         yield buf.getvalue()
 
-    filename = f"tilapia_mortality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"tilapia_mortality_report_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         _generate(),
         media_type="text/csv",
@@ -1685,7 +1713,7 @@ async def export_tank_telemetry_csv(
             ])
         yield buf.getvalue()
 
-    filename = f"tilapia_tank_telemetry_{resolution}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"tilapia_tank_telemetry_{resolution}_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         _generate(),
         media_type="text/csv",
@@ -1705,7 +1733,7 @@ async def reset_database_endpoint():
     return {
         "status": "success",
         "message": "All database records purged and tank counts reset to 0.",
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone(timedelta(hours=8))).isoformat(),
     }
 
 
@@ -1742,7 +1770,7 @@ async def analytics_export_csv():
             ])
         yield buf.getvalue()
 
-    filename = f"tilapia_telemetry_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"tilapia_telemetry_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         _generate(),
         media_type="text/csv",
@@ -1895,6 +1923,7 @@ def _bench_viz_cache_invalidate():
 # ---------------------------------------------------------------------------
 @app.post("/api/evaluate-sample")
 async def evaluate_sample_endpoint(
+    request: Request,
     image_file: Optional[UploadFile] = File(None),
     use_cached_image: bool = Form(False),
     annotation_file: Optional[UploadFile] = File(None),
@@ -1910,6 +1939,9 @@ async def evaluate_sample_endpoint(
     Computes Precision, Recall, F1-Score, Counting Error (MAE, MAPE), and Confusion Matrix.
     Persists evaluation runs into evaluation_benchmarks SQLite table.
     """
+    submitted = await request.form()
+    if set(submitted) & {"conf", "iou_thresh", "models"}:
+        raise HTTPException(422, "Counting settings are fixed by calibration.")
     # 1. Resolve image
     frame = None
     source_name = "cached_image"
@@ -1941,7 +1973,11 @@ async def evaluate_sample_endpoint(
         gt_boxes = parse_yolo_label_text(ann_text, frame.shape[1], frame.shape[0])
         gt_count_val = len(gt_boxes)
     elif actual_count is not None:
+        if actual_count < 0:
+            raise HTTPException(400, "Actual fish count cannot be negative.")
         gt_count_val = int(actual_count)
+    else:
+        raise HTTPException(400, "Provide the actual fish count or an annotation file.")
 
     # 3. Resolve Models
     if models:
@@ -1957,20 +1993,25 @@ async def evaluate_sample_endpoint(
         raise HTTPException(400, "No valid models selected for evaluation")
 
     evaluator = ModelEvaluator(state.model_pool)
-    result = await asyncio.to_thread(
-        evaluator.evaluate_sample,
-        frame,
-        model_names,
-        conf,
-        iou_thresh,
-        gt_count_val,
-        gt_boxes,
-        source_name,
-    )
+    profile = load_profile()
+    def benchmark():
+        with INFERENCE_LOCK:
+            result = evaluator.evaluate_sample(frame, model_names, gt_count=gt_count_val, gt_boxes=gt_boxes,
+                source_name=source_name, profiles=profile["models"])
+            _, fused, _ = _infer_frame(frame, False)
+            metrics = compute_academic_metrics([[b["x1"], b["y1"], b["x2"], b["y2"]] for b in fused],
+                gt_boxes=gt_boxes, gt_count=gt_count_val, iou_thresh=.5)
+            metrics.update({"model_name": "ensemble", "confidence_threshold": None,
+                "iou_threshold": profile["ensemble_iou"], "boxes": [[b["x1"], b["y1"], b["x2"], b["y2"]] for b in fused],
+                "boxes_conf": [b["conf"] for b in fused], "inference_ms": sum(m["inference_ms"] for m in result["models"]),
+                "source_name": source_name})
+            result["models"].append(metrics)
+            return result
+    result = await asyncio.to_thread(benchmark)
 
     # 4. Persist to evaluation_benchmarks table in SQLite
     saved_ids = []
-    batch_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    batch_ts = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S.%f")
     orig_h, orig_w = frame.shape[:2]
     for m in result["models"]:
         mape_val = float(m.get("mape", 0.0))
@@ -1981,8 +2022,8 @@ async def evaluate_sample_endpoint(
         bench_row = {
             "timestamp": batch_ts,
             "model_name": m["model_name"],
-            "confidence_threshold": conf,
-            "iou_threshold": iou_thresh,
+            "confidence_threshold": m.get("confidence_threshold"),
+            "iou_threshold": m.get("iou_threshold"),
             "actual_count": m["actual_count"],
             "predicted_count": m["predicted_count"],
             "mae": m["mae"],
@@ -2051,11 +2092,11 @@ async def visualize_benchmark_batch(request: Request, batch_id: str):
     Responses are served from an in-memory cache and carry an ETag, so repeat
     views revalidate cheaply (304) instead of re-querying the database.
     """
-    key = str(batch_id).strip()
+    key = f"{current_farm.get()}:{str(batch_id).strip()}"
     entry = _BENCH_VIZ_CACHE.get(key)
 
     if entry is None:
-        payload = await db.query_evaluation_visualization(key)
+        payload = await db.query_evaluation_visualization(str(batch_id).strip())
         if payload is None:
             raise HTTPException(404, f"Benchmark batch '{key}' not found")
         body = json.dumps(payload)
@@ -2122,12 +2163,109 @@ async def export_evaluation_benchmarks_csv():
             ])
         yield buf.getvalue()
 
-    filename = f"tilapia_academic_benchmarks_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"tilapia_academic_benchmarks_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         _generate(),
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Account/farm boundary and management routes
+# ---------------------------------------------------------------------------
+from farm_api import register, websocket_context, validate_source, validate_tank_selection
+register(app, state, AppState, _SESSION_STATES, db)
+
+
+async def _protected_websocket(ws, tank_id):
+    contexts = await websocket_context(ws, AppState)
+    if contexts is None:
+        return
+    try:
+        if app.state.production.enabled:
+            await _production_websocket(ws,tank_id)
+        else:
+            await _handle_websocket_live(ws, tank_id)
+    finally:
+        for variable, token in reversed(contexts):
+            variable.reset(token)
+
+
+async def _production_websocket(ws,tank_id):
+    """Authenticated viewers subscribe; only explicit controls change durable running state."""
+    import contextlib
+    manager=app.state.production
+    farm=current_farm.get()
+    if not tank_id or not await db.get_tank(tank_id):
+        await ws.close(code=4404)
+        return
+    await ws.accept()
+    await ws.send_json({'type':'tank_bound','tank':await db.get_tank(tank_id)})
+    attached=None; queue=None
+
+    async def send_updates():
+        nonlocal attached,queue
+        last_status=None
+        while True:
+            if not manager.enabled:
+                await ws.close(code=1012)
+                return
+            if not await accounts.authenticate(ws.cookies.get('tilapia_session')):
+                await ws.close(code=4401)
+                return
+            worker=manager.workers.get((farm,tank_id))
+            if worker is not attached:
+                if attached:
+                    attached.subscribers.discard(queue)
+                attached,queue=await manager.subscribe(farm,tank_id)
+            if attached:
+                try:
+                    event=await asyncio.wait_for(queue.get(),2)
+                    await ws.send_json(public_value(event))
+                except asyncio.TimeoutError:
+                    pass
+            else:
+                status=next(t for t in (await manager.status(farm))['tanks'] if t['tank_id']==tank_id)
+                value=(status['status'],status['message'])
+                if value!=last_status:
+                    await ws.send_json({'type':'stream_state','status':'stopped' if status['status']=='paused' else status['status'],
+                        'message':status['message'],'tank_id':tank_id,'production':True})
+                    last_status=value
+                await asyncio.sleep(1)
+
+    sending=asyncio.create_task(send_updates())
+    receiving=None
+    try:
+        while True:
+            receiving=asyncio.create_task(ws.receive_json())
+            done,_=await asyncio.wait([sending,receiving],return_when=asyncio.FIRST_COMPLETED)
+            if sending in done:
+                await sending
+                break
+            message=receiving.result()
+            user=await accounts.authenticate(ws.cookies.get('tilapia_session'))
+            if not user:
+                await ws.close(code=4401); break
+            if message.get('type') in ('start_stream','stop_stream'):
+                config=next(c for c in await db.monitoring_configs() if c['tank_id']==tank_id)
+                if message['type']=='start_stream' and not config['validation']:
+                    await ws.send_json({'type':'error','message':'Validate this live camera census before starting Production monitoring.'})
+                    continue
+                await db.configure_monitoring(tank_id,enabled=message['type']=='start_stream')
+                await accounts.audit(user['id'],farm,'monitoring_control',json.dumps({'tank_id':tank_id,'enabled':message['type']=='start_stream'}))
+                await manager.sync()
+            elif message.get('type') not in ('subscribe','set_overlay'):
+                await ws.send_json({'type':'error','message':'Production Mode accepts only live camera monitoring.'})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if receiving and not receiving.done():
+            receiving.cancel()
+        sending.cancel()
+        await asyncio.gather(*([receiving] if receiving else []),sending,return_exceptions=True)
+        if attached:
+            attached.subscribers.discard(queue)
 
 
 # ---------------------------------------------------------------------------

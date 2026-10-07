@@ -105,6 +105,8 @@ logs/
 # Environment Configuration & Secret Keys
 # ---------------------------------------------------------------------
 .env
+private_data/
+calibration_cache/
 .env.local
 .env.*.local
 !.env.example

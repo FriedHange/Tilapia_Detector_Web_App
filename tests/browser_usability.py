@@ -1,0 +1,162 @@
+"""Real previews, accessible tank opening, simplified forms and confirmed removal."""
+import argparse
+from pathlib import Path
+
+from playwright.sync_api import expect, sync_playwright
+
+
+def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--url',default='http://127.0.0.1:8001')
+    parser.add_argument('--executable',required=True)
+    args=parser.parse_args()
+    root=Path(__file__).resolve().parents[1]
+    artifacts=root/'private_data'/'browser_qa'
+    errors=[]
+    with sync_playwright() as playwright:
+        browser=playwright.chromium.launch(headless=True,executable_path=args.executable)
+        page=browser.new_page(viewport={'width':1440,'height':1000},has_touch=True)
+        page.on('pageerror',lambda error:errors.append(str(error)))
+        page.goto(args.url+'/login')
+        page.locator('#username').fill('preview-farmer')
+        page.locator('#password').fill('Preview farmer password!')
+        page.get_by_role('button',name='Sign in',exact=True).click()
+        expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible()
+        page.get_by_role('button',name='Tank Management',exact=True).click()
+        expect(page.get_by_role('button',name='Tank inspector',exact=True)).to_have_count(0)
+        expect(page.get_by_role('button',name='Inspect tank',exact=True)).to_have_count(0)
+        expect(page.locator('.notice')).to_have_count(0)
+        expect(page.locator('main [data-action=validate-census]')).to_have_count(0)
+        first=page.locator('[data-monitor-tank=TANK-01]')
+        second=page.locator('[data-monitor-tank=TANK-02]')
+        form=page.locator('#formDialog')
+        if not page.evaluate("monitorConfig('TANK-01')?.live_source"):
+            page.evaluate("api('/api/tanks/TANK-01/monitoring',{method:'PUT',body:{live_source:'rtsp://camera-setup-fixture/live'}})")
+            page.evaluate('refresh()')
+        first.get_by_role('button',name='Edit Tank',exact=True).click()
+        expect(page.locator('#countDialog')).not_to_be_visible()
+        check=form.get_by_role('button',name='Check camera accuracy',exact=True)
+        expect(check).to_be_enabled()
+        form.locator('[name=name]').fill('Unsaved camera setup')
+        expect(check).to_be_disabled()
+        form.locator('[name=name]').fill(page.evaluate("State.report.tanks.find(t=>t.tank_id==='TANK-01').name"))
+        expect(check).to_be_enabled()
+        check.click()
+        expect(form.get_by_role('heading',name='Check camera accuracy',exact=True)).to_be_visible()
+        expect(form.locator('[name=whole_view]')).to_be_visible()
+        form.get_by_role('button',name='Cancel',exact=True).click()
+        original=page.evaluate("State.report.tanks.find(t=>t.tank_id==='TANK-01').camera_source")
+        first.get_by_role('button',name='Play video',exact=True).click()
+        second.get_by_role('button',name='Play video',exact=True).click()
+        page.wait_for_function("['TANK-01','TANK-02'].every(id=>freshMonitoring(tankStream(id)))")
+        page.evaluate("window.keptSocket=tankStream('TANK-02').ws")
+        first.focus();page.keyboard.press('Enter')
+        expect(page.locator('#inspectedTank')).to_have_value('TANK-01')
+        page.wait_for_function("document.querySelector('#countPreview').naturalWidth>0")
+
+        def visible_overlay():
+            return page.evaluate("()=>{const c=document.querySelector('#countOverlay');return [...c.getContext('2d').getImageData(0,0,c.width,c.height).data].some((v,i)=>i%4===3 && v>0);}")
+
+        def open_display():
+            if not page.locator('.display-options').evaluate('(e)=>e.open'):
+                page.locator('.display-options summary').click()
+
+        def individual_overlays():
+            open_display()
+            for key in ('show_boxes','show_labels','show_conf','show_dots'):
+                page.get_by_role('button',name='Clean video',exact=True).click()
+                assert not visible_overlay()
+                page.locator('[data-display-choice='+key+']').check()
+                page.wait_for_function("()=>{const c=document.querySelector('#countOverlay');return [...c.getContext('2d').getImageData(0,0,c.width,c.height).data].some((v,i)=>i%4===3 && v>0);}")
+                page.locator('[data-display-choice='+key+']').uncheck()
+                assert not visible_overlay()
+
+        individual_overlays()
+        # Stationary sample fish have zero-length trails; verify trail drawing is invoked.
+        page.evaluate("()=>{window.trailStrokes=0;window.nativeStroke=CanvasRenderingContext2D.prototype.stroke;CanvasRenderingContext2D.prototype.stroke=function(...args){if(this.canvas.id==='countOverlay')trailStrokes++;return nativeStroke.apply(this,args);};}")
+        page.locator('[data-display-choice=show_trails]').check()
+        page.wait_for_function('trailStrokes>0')
+        page.get_by_role('button',name='Clean video',exact=True).click()
+        page.keyboard.press('Escape')
+        page.locator('#countPhoto').set_input_files(str(root/'static'/'media'/'dataset_sample_1.jpg'))
+        expect(page.locator('#countStatus')).to_have_text('Photo estimate. Review it before saving.')
+        page.wait_for_function("document.querySelector('#countPreview').complete && document.querySelector('#countPreview').src.endsWith(State.samplePreview.raw_frame)")
+        assert not visible_overlay()
+        individual_overlays()
+        page.evaluate('refresh()')
+        assert not visible_overlay()
+        assert page.evaluate("tankStream('TANK-02').ws===keptSocket")
+        page.get_by_role('button',name='Reset display',exact=True).click()
+        page.keyboard.press('Escape')
+        page.evaluate("()=>{document.activeElement.blur();window.scrollTo(0,0);}")
+        page.screenshot(path=str(artifacts/'simplified-photo-desktop.png'),full_page=True)
+        page.locator('#closeCount').click()
+        first.locator('.monitoring-preview').click()
+        expect(page.locator('#inspectedTank')).to_have_value('TANK-01')
+        page.get_by_role('button',name='Record dispersal',exact=True).click()
+        for name in ('census_event_id','arrival_event_id','mortality_event_id','mortality_count','destination_tank_id'):
+            expect(form.locator('[name='+name+']')).to_have_count(0)
+        assert form.locator('[name=dispersal_id]').input_value().startswith('DISP-')
+        form.locator('[name=type]').select_option('transfer')
+        expect(form.locator('[name=unit_price_php]')).not_to_be_visible()
+        expect(form.locator('[name=unit_price_php]')).to_be_disabled()
+        form.locator('[name=type]').select_option('sale')
+        expect(form.locator('[name=unit_price_php]')).to_be_visible()
+        form.get_by_role('button',name='Cancel',exact=True).click()
+        removed=page.evaluate("source=>api('/api/tanks',{method:'POST',body:{name:'Removal browser fixture',current_count:22,camera_source:source}})",original)
+        code=removed['tank_id']
+        page.locator('#closeCount').click();page.evaluate('refresh()')
+        card=page.locator('[data-monitor-tank="'+code+'"]')
+        card.get_by_role('button',name='Play video',exact=True).click()
+        page.wait_for_function('id=>freshMonitoring(tankStream(id))',arg=code)
+        card.locator('.tank-title').click()
+        expect(page.locator('#inspectedTank')).to_have_value(code)
+        submitted=[]
+        page.on('request',lambda request:submitted.append(request.post_data_json) if request.method=='POST' and request.url.endswith('/api/dispersal/commit') else None)
+        page.get_by_role('button',name='Record dispersal',exact=True).click()
+        form.locator('[name=type]').select_option('transfer')
+        form.locator('[name=count]').fill('2')
+        form.locator('[name=recipient]').fill('External nursery')
+        form.get_by_role('button',name='Confirm dispersal',exact=True).click()
+        expect(form).not_to_be_visible()
+        assert submitted and all(name not in submitted[-1] for name in ('mortality_count','census_event_id','arrival_event_id','mortality_event_id','destination_tank_id','unit_price_php','price_unit'))
+        expect(page.locator('#inspectorInventory')).to_contain_text('20 fish')
+        page.get_by_role('button',name='Edit Tank',exact=True).click()
+        form.get_by_role('button',name='Delete tank',exact=True).click()
+        expect(form.locator('#dialogBody')).to_contain_text('20 saved fish')
+        form.get_by_role('button',name='Cancel',exact=True).click()
+        assert page.evaluate('id=>freshMonitoring(tankStream(id))',code)
+        page.get_by_role('button',name='Edit Tank',exact=True).click()
+        form.get_by_role('button',name='Delete tank',exact=True).click()
+        before=page.evaluate("api('/api/reports').then(r=>r.summary.confirmed_mortality_count)")
+        page.evaluate("id=>api('/api/tanks/'+id+'/stock',{method:'POST',body:{count:1}})",code)
+        form.get_by_role('button',name='Delete tank',exact=True).click()
+        expect(form.locator('#formError')).to_contain_text('Population changed')
+        expect(form.locator('#dialogBody')).to_contain_text('21 saved fish')
+        expect(form).to_be_visible()
+        form.get_by_role('button',name='Delete tank',exact=True).click()
+        expect(form).not_to_be_visible()
+        expect(card).to_have_count(0)
+        assert page.evaluate('id=>!tankStream(id)',code)
+        assert page.evaluate("tankStream('TANK-02').ws===keptSocket && freshMonitoring(tankStream('TANK-02'))")
+        record=page.evaluate("id=>api('/api/tanks/'+id)",code)
+        assert record['status']=='inactive' and record['current_count']==0
+        assert page.evaluate("api('/api/reports').then(r=>r.summary.confirmed_mortality_count)")==before
+        page.set_viewport_size({'width':390,'height':844})
+        page.wait_for_function("document.querySelector('#sidebar').getBoundingClientRect().right<=0")
+        second.locator('.monitoring-preview').tap()
+        expect(page.locator('#inspectedTank')).to_have_value('TANK-02')
+        open_display()
+        page.get_by_role('button',name='Clean video',exact=True).click()
+        assert not visible_overlay()
+        page.keyboard.press('Escape');page.evaluate("()=>{document.activeElement.blur();window.scrollTo(0,0);}")
+        expect(page.locator('#toast')).not_to_be_visible(timeout=10000)
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        page.screenshot(path=str(artifacts/'simplified-tank-mobile.png'),full_page=True)
+        page.evaluate('stopAllMonitoring(true)')
+        browser.close()
+    assert not errors,errors
+    print('Passed: individual video/photo overlays, clean frames, trail controls, tank mouse/keyboard/touch opening, simplified forms, camera setup and concurrent stocked deletion without mortality or interruption of another tank.')
+
+
+if __name__=='__main__':main()

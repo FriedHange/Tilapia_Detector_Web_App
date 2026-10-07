@@ -1,0 +1,437 @@
+{
+  "calibrated": true,
+  "dataset": "D:\\Downloads\\DL Manager 2\\Compressed\\Tilapia Fingerlings.v1i.coco",
+  "annotation_hashes": {
+    "valid": "c14cfa746f236ea1f3c8dd3eb577bd921303f13557046d20309043ca5e3828e8",
+    "test": "2411f1205793a1011c52410161abeff739eae8e84cd50456854801505315cd25",
+    "train": "088af7088048fb731208474ef37880a6a80f130ef28cf35856daa5ae60e57e0c"
+  },
+  "matching_iou": 0.5,
+  "max_det": 1000,
+  "imgsz": 640,
+  "models": {
+    "yolov8n": {
+      "conf": 0.3,
+      "iou": 0.3,
+      "weight_sha256": "8d9ce4d5bc0a52d9e8c4b54961539b4e4cfb830b709d7c83400d41371aab2716",
+      "validation": {
+        "mae": 2.188119,
+        "f1": 0.931213,
+        "precision": 0.931479,
+        "recall": 0.930948,
+        "images": 101,
+        "tp": 8170,
+        "fp": 601,
+        "fn": 606
+      },
+      "baseline_validation": {
+        "mae": 14.683168,
+        "f1": 0.874619,
+        "precision": 0.9634,
+        "recall": 0.80082,
+        "images": 101,
+        "tp": 7028,
+        "fp": 267,
+        "fn": 1748
+      },
+      "test": {
+        "mae": 1.2,
+        "f1": 0.880795,
+        "precision": 0.898649,
+        "recall": 0.863636,
+        "images": 10,
+        "tp": 266,
+        "fp": 30,
+        "fn": 42
+      },
+      "latency_ms": 19.92,
+      "test_latency_ms": 19.392,
+      "top_candidates": [
+        {
+          "conf": 0.3,
+          "iou": 0.3,
+          "mae": 2.188119,
+          "f1": 0.931213,
+          "precision": 0.931479,
+          "recall": 0.930948,
+          "images": 101,
+          "tp": 8170,
+          "fp": 601,
+          "fn": 606,
+          "latency_ms": 21.024
+        },
+        {
+          "conf": 0.3,
+          "iou": 0.4,
+          "mae": 2.346535,
+          "f1": 0.929086,
+          "precision": 0.92588,
+          "recall": 0.932315,
+          "images": 101,
+          "tp": 8182,
+          "fp": 655,
+          "fn": 594,
+          "latency_ms": 20.964
+        },
+        {
+          "conf": 0.25,
+          "iou": 0.3,
+          "mae": 2.386139,
+          "f1": 0.930009,
+          "precision": 0.925132,
+          "recall": 0.934936,
+          "images": 101,
+          "tp": 8205,
+          "fp": 664,
+          "fn": 571,
+          "latency_ms": 21.024
+        },
+        {
+          "conf": 0.35,
+          "iou": 0.5,
+          "mae": 2.524752,
+          "f1": 0.92578,
+          "precision": 0.929877,
+          "recall": 0.921718,
+          "images": 101,
+          "tp": 8089,
+          "fp": 610,
+          "fn": 687,
+          "latency_ms": 20.872
+        },
+        {
+          "conf": 0.35,
+          "iou": 0.4,
+          "mae": 2.564356,
+          "f1": 0.927313,
+          "precision": 0.933795,
+          "recall": 0.920921,
+          "images": 101,
+          "tp": 8082,
+          "fp": 573,
+          "fn": 694,
+          "latency_ms": 20.964
+        }
+      ]
+    },
+    "yolov9c": {
+      "conf": 0.35,
+      "iou": 0.3,
+      "weight_sha256": "bcd1582c087f7b0dc59799c8b430cc4bd644d9aa0ec65d7fadcc71b8fa9a5d50",
+      "validation": {
+        "mae": 1.990099,
+        "f1": 0.93407,
+        "precision": 0.93423,
+        "recall": 0.933911,
+        "images": 101,
+        "tp": 8196,
+        "fp": 577,
+        "fn": 580
+      },
+      "baseline_validation": {
+        "mae": 8.792079,
+        "f1": 0.907805,
+        "precision": 0.957754,
+        "recall": 0.862808,
+        "images": 101,
+        "tp": 7572,
+        "fp": 334,
+        "fn": 1204
+      },
+      "test": {
+        "mae": 1.1,
+        "f1": 0.88595,
+        "precision": 0.902357,
+        "recall": 0.87013,
+        "images": 10,
+        "tp": 268,
+        "fp": 29,
+        "fn": 40
+      },
+      "latency_ms": 51.172,
+      "test_latency_ms": 50.793,
+      "top_candidates": [
+        {
+          "conf": 0.35,
+          "iou": 0.3,
+          "mae": 1.990099,
+          "f1": 0.93407,
+          "precision": 0.93423,
+          "recall": 0.933911,
+          "images": 101,
+          "tp": 8196,
+          "fp": 577,
+          "fn": 580,
+          "latency_ms": 52.666
+        },
+        {
+          "conf": 0.35,
+          "iou": 0.4,
+          "mae": 2.0,
+          "f1": 0.933713,
+          "precision": 0.933288,
+          "recall": 0.934139,
+          "images": 101,
+          "tp": 8198,
+          "fp": 586,
+          "fn": 578,
+          "latency_ms": 54.607
+        },
+        {
+          "conf": 0.35,
+          "iou": 0.5,
+          "mae": 2.039604,
+          "f1": 0.933311,
+          "precision": 0.932144,
+          "recall": 0.93448,
+          "images": 101,
+          "tp": 8201,
+          "fp": 597,
+          "fn": 575,
+          "latency_ms": 52.974
+        },
+        {
+          "conf": 0.35,
+          "iou": 0.6,
+          "mae": 2.09901,
+          "f1": 0.932583,
+          "precision": 0.930467,
+          "recall": 0.934708,
+          "images": 101,
+          "tp": 8203,
+          "fp": 613,
+          "fn": 573,
+          "latency_ms": 52.502
+        },
+        {
+          "conf": 0.3,
+          "iou": 0.3,
+          "mae": 2.207921,
+          "f1": 0.934111,
+          "precision": 0.928901,
+          "recall": 0.93938,
+          "images": 101,
+          "tp": 8244,
+          "fp": 631,
+          "fn": 532,
+          "latency_ms": 52.666
+        }
+      ]
+    },
+    "yolov10n": {
+      "conf": 0.25,
+      "iou": 0.3,
+      "weight_sha256": "c14e079b6d5d61254eda083c314fe3c86857619f900d48f25394cf20c23a1245",
+      "validation": {
+        "mae": 2.118812,
+        "f1": 0.928328,
+        "precision": 0.923928,
+        "recall": 0.932771,
+        "images": 101,
+        "tp": 8186,
+        "fp": 674,
+        "fn": 590
+      },
+      "baseline_validation": {
+        "mae": 11.811881,
+        "f1": 0.890546,
+        "precision": 0.960327,
+        "recall": 0.830219,
+        "images": 101,
+        "tp": 7286,
+        "fp": 301,
+        "fn": 1490
+      },
+      "test": {
+        "mae": 0.6,
+        "f1": 0.872549,
+        "precision": 0.878289,
+        "recall": 0.866883,
+        "images": 10,
+        "tp": 267,
+        "fp": 37,
+        "fn": 41
+      },
+      "latency_ms": 22.925,
+      "test_latency_ms": 22.632,
+      "top_candidates": [
+        {
+          "conf": 0.25,
+          "iou": 0.3,
+          "mae": 2.118812,
+          "f1": 0.928328,
+          "precision": 0.923928,
+          "recall": 0.932771,
+          "images": 101,
+          "tp": 8186,
+          "fp": 674,
+          "fn": 590,
+          "latency_ms": 32.291
+        },
+        {
+          "conf": 0.3,
+          "iou": 0.3,
+          "mae": 2.178218,
+          "f1": 0.929208,
+          "precision": 0.931121,
+          "recall": 0.927302,
+          "images": 101,
+          "tp": 8138,
+          "fp": 602,
+          "fn": 638,
+          "latency_ms": 32.291
+        },
+        {
+          "conf": 0.3,
+          "iou": 0.4,
+          "mae": 2.19802,
+          "f1": 0.928149,
+          "precision": 0.926044,
+          "recall": 0.930264,
+          "images": 101,
+          "tp": 8164,
+          "fp": 652,
+          "fn": 612,
+          "latency_ms": 15.549
+        },
+        {
+          "conf": 0.35,
+          "iou": 0.5,
+          "mae": 2.346535,
+          "f1": 0.925213,
+          "precision": 0.92781,
+          "recall": 0.92263,
+          "images": 101,
+          "tp": 8097,
+          "fp": 630,
+          "fn": 679,
+          "latency_ms": 22.704
+        },
+        {
+          "conf": 0.35,
+          "iou": 0.4,
+          "mae": 2.455446,
+          "f1": 0.927842,
+          "precision": 0.934165,
+          "recall": 0.921604,
+          "images": 101,
+          "tp": 8088,
+          "fp": 570,
+          "fn": 688,
+          "latency_ms": 15.549
+        }
+      ]
+    }
+  },
+  "ensemble_iou": 0.3,
+  "warnings": [
+    "All validation and test video sources overlap training video sources; results are dataset-specific, not independent video generalization."
+  ],
+  "source_overlap": {
+    "valid_train": 6,
+    "test_train": 3
+  },
+  "ensemble": {
+    "validation": {
+      "iou": 0.3,
+      "mae": 2.980198,
+      "f1": 0.929443,
+      "precision": 0.917323,
+      "recall": 0.941887,
+      "images": 101,
+      "tp": 8266,
+      "fp": 745,
+      "fn": 510
+    },
+    "test": {
+      "mae": 0.5,
+      "f1": 0.877651,
+      "precision": 0.881967,
+      "recall": 0.873377,
+      "images": 10,
+      "tp": 269,
+      "fp": 36,
+      "fn": 39
+    },
+    "median_detector_ms_sum": 94.017,
+    "candidates": [
+      {
+        "iou": 0.3,
+        "mae": 2.980198,
+        "f1": 0.929443,
+        "precision": 0.917323,
+        "recall": 0.941887,
+        "images": 101,
+        "tp": 8266,
+        "fp": 745,
+        "fn": 510
+      },
+      {
+        "iou": 0.4,
+        "mae": 3.168317,
+        "f1": 0.928644,
+        "precision": 0.914586,
+        "recall": 0.94314,
+        "images": 101,
+        "tp": 8277,
+        "fp": 773,
+        "fn": 499
+      },
+      {
+        "iou": 0.5,
+        "mae": 3.564356,
+        "f1": 0.927389,
+        "precision": 0.910879,
+        "recall": 0.944508,
+        "images": 101,
+        "tp": 8289,
+        "fp": 811,
+        "fn": 487
+      },
+      {
+        "iou": 0.6,
+        "mae": 4.544554,
+        "f1": 0.922709,
+        "precision": 0.900445,
+        "recall": 0.946103,
+        "images": 101,
+        "tp": 8303,
+        "fp": 918,
+        "fn": 473
+      },
+      {
+        "iou": 0.7,
+        "mae": 8.0,
+        "f1": 0.906396,
+        "precision": 0.868449,
+        "recall": 0.947812,
+        "images": 101,
+        "tp": 8318,
+        "fp": 1260,
+        "fn": 458
+      },
+      {
+        "iou": 0.8,
+        "mae": 21.376238,
+        "f1": 0.848054,
+        "precision": 0.764335,
+        "recall": 0.95237,
+        "images": 101,
+        "tp": 8358,
+        "fp": 2577,
+        "fn": 418
+      },
+      {
+        "iou": 0.9,
+        "mae": 87.128713,
+        "f1": 0.638965,
+        "precision": 0.479005,
+        "recall": 0.959321,
+        "images": 101,
+        "tp": 8419,
+        "fp": 9157,
+        "fn": 357
+      }
+    ]
+  }
+}
