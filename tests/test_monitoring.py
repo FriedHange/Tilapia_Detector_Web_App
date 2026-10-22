@@ -148,3 +148,36 @@ class MonitoringTests(unittest.TestCase):
                 second.send_json({'type':'stop_stream'})
                 self.receive(second,'stream_state',lambda event:event['status']=='stopped')
                 video.release.assert_called_once()
+
+    def test_camera_analyzes_periodic_snapshots_without_line_crossings(self):
+        self.request(self.alice,'PUT','/api/tanks/TANK-01',json={'camera_source':'1'})
+        captures=[]
+        class Capture:
+            kind='camera'
+            def __init__(self,source):
+                self.reads=0; captures.append(self)
+            def open(self): return True
+            def read(self):
+                self.reads+=1
+                return True,np.full((96,96,3),self.reads%255,dtype=np.uint8)
+            def release(self): pass
+        inferred=[]
+        def infer(frame,*args):
+            inferred.append(int(frame[0,0,0]))
+            x=10 if len(inferred)%2 else 70
+            return [],[{'x1':x,'y1':10,'x2':x+10,'y2':20,'conf':.99,'class_id':0,'class_name':'Tilapia fingerling'}],None
+        with patch.object(app,'TankCapture',Capture),patch.object(app,'CAMERA_POLL_SECONDS',.01),patch.object(app,'CAMERA_SNAPSHOT_SECONDS',.3),patch.object(app,'_infer_frame',side_effect=infer):
+            with self.websocket('TANK-01') as socket:
+                socket.receive_json(); socket.send_json({'type':'start_stream'})
+                first=self.receive(socket,'telemetry')
+                second=self.receive(socket,'telemetry')
+                self.assertEqual((first['frame_idx'],second['frame_idx']),(1,2))
+                self.assertEqual((first['live_count'],second['live_count']),(1,1))
+                self.assertEqual((first['count_in'],second['count_in']),(0,0))
+                self.assertEqual((first['count_out'],second['count_out']),(0,0))
+                self.assertEqual(second['snapshot_interval_seconds'],.3)
+                self.assertIsNone(second['detections'][0]['track_id'])
+                self.assertEqual(len(inferred),2)
+                self.assertGreater(captures[0].reads,len(inferred))
+                socket.send_json({'type':'stop_stream'})
+                self.receive(socket,'stream_state',lambda event:event['status']=='stopped')

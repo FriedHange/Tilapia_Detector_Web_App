@@ -16,6 +16,7 @@ from census import CensusWindow,frame_quality,good_quality,validation_profile
 from detection_profile import fingerprint
 from farm_database import FarmDatabase,now_text
 from production import ProductionMonitor,source_key
+from monitoring import CAMERA_SNAPSHOT_SECONDS
 import test_access as access_fixture
 import app
 
@@ -28,6 +29,12 @@ class CensusTests(unittest.TestCase):
         window=CensusWindow(window_seconds=2,minimum_samples=3)
         results=[window.add(90,t) for t in range(9)]
         self.assertEqual([r for r in results if r is not None],[90])
+
+    def test_five_second_snapshots_fill_conservative_census_windows(self):
+        window=CensusWindow(error_band=0)
+        observations=[window.add(90,index*CAMERA_SNAPSHOT_SECONDS) for index in range(39)]
+        self.assertEqual([value for value in observations if value is not None],[90])
+        self.assertIsNone(window.add(0,39*CAMERA_SNAPSHOT_SECONDS))
 
     def test_bad_frames_and_gaps_reset_evidence_and_replays_do_not_advance(self):
         window=CensusWindow(window_seconds=2,minimum_samples=3)

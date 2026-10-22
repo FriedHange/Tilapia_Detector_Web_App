@@ -4,6 +4,9 @@ import threading
 
 import cv2
 
+CAMERA_SNAPSHOT_SECONDS = 5.0
+CAMERA_POLL_SECONDS = 1.0
+
 
 async def capture_io(function, *args):
     """Finish a native capture operation before cancellation releases its resource."""
@@ -34,6 +37,8 @@ class TankCapture:
                     [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 3000, cv2.CAP_PROP_READ_TIMEOUT_MSEC, 3000])
             else:
                 self.capture = cv2.VideoCapture(self.source)
+            if self.kind == "camera" and self.capture.isOpened():
+                self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             return self.capture.isOpened()
 
     def read(self):

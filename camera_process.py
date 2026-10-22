@@ -8,7 +8,7 @@ import time
 def _capture(source, frames):
     # Import in the child; do not import app or load GPU models here.
     import cv2
-    from monitoring import TankCapture
+    from monitoring import CAMERA_POLL_SECONDS, CAMERA_SNAPSHOT_SECONDS, TankCapture
     camera = TankCapture(source)
     parent = multiprocessing.parent_process()
     try:
@@ -16,12 +16,19 @@ def _capture(source, frames):
             frames.put(('error',None,time.monotonic()))
             return
         camera.capture.set(cv2.CAP_PROP_BUFFERSIZE,1)
-        interval=camera.frame_interval() if camera.kind=='video' else .005
+        interval=camera.frame_interval() if camera.kind=='video' else CAMERA_POLL_SECONDS
+        next_snapshot=0.0
         while parent is None or parent.is_alive():
             ok, frame = camera.read()
             if not ok or frame is None:
                 frames.put(('error',None,time.monotonic()))
                 return
+            captured=time.monotonic()
+            if camera.kind=='camera' and captured<next_snapshot:
+                time.sleep(interval)
+                continue
+            if camera.kind=='camera':
+                next_snapshot=captured+CAMERA_SNAPSHOT_SECONDS
             height,width=frame.shape[:2]
             if max(height,width)>640:
                 scale=640/max(height,width)
@@ -29,7 +36,7 @@ def _capture(source, frames):
             ok, encoded = cv2.imencode('.jpg',frame,[cv2.IMWRITE_JPEG_QUALITY,90])
             if not ok:
                 continue
-            packet = ('frame',encoded.tobytes(),time.monotonic())
+            packet = ('frame',encoded.tobytes(),captured)
             try:
                 frames.put_nowait(packet)
             except queue.Full:

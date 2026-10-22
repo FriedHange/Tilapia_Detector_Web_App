@@ -54,7 +54,7 @@
   <div id="monitoringDock" hidden>
   <section id="countDialog" aria-labelledby="countTitle" hidden>
     <div class="inspector-header">
-      <div><span class="eyebrow">LIVE TANK VIEW</span>
+      <div><span class="eyebrow">TANK MONITORING</span>
         <h2 id="countTitle">Monitor tank</h2>
       </div><label class="inspector-selector">Tank<select id="inspectedTank" aria-label="Selected tank"></select></label><button class="button secondary" id="closeCount">Back to tanks</button>
     </div>
@@ -63,7 +63,7 @@
           accept="image/*" hidden></label><label data-demo-source class="button secondary">Use a tank video<input id="countVideo"
           type="file" accept="video/*" hidden></label><button class="button" id="toggleCamera">Start camera</button></div>
     <p id="countStatus" role="status">Ready to count.</p>
-    <div class="count-preview"><img id="countPreview" alt="Live fish camera preview" hidden><canvas id="countOverlay" aria-hidden="true" hidden></canvas>
+    <div class="count-preview"><img id="countPreview" alt="Latest aquarium camera snapshot" hidden><canvas id="countOverlay" aria-hidden="true" hidden></canvas>
       <div id="countPlaceholder">A clear overhead view gives a more useful estimate.</div>
     </div>
     <div class="count-results">

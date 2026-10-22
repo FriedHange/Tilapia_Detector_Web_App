@@ -13,6 +13,7 @@ from camera_process import ProcessCamera
 from census import CensusWindow, frame_quality, good_quality, validation_profile
 from detection_profile import fingerprint
 from farm_database import now_text
+from monitoring import CAMERA_SNAPSHOT_SECONDS
 
 log = logging.getLogger('tilapia.production')
 
@@ -206,7 +207,7 @@ class ProductionMonitor:
             self.inference_started=time.monotonic()
             try:
                 return await self.processor(frame,session,index,last_log,'production_camera',tank=tank,
-                                            run_inference=True,cached_result=None)
+                                            run_inference=True,cached_result=None,snapshot=True)
             finally:
                 self.inference_started=None
 
@@ -261,7 +262,7 @@ class ProductionMonitor:
                         worker.status='running'; worker.message='Monitoring. Automatic census active.' if valid else 'Counting unreliable. Inventory updates are held.'
                         telemetry.update(production=True,source_kind='camera',saved_population=tank['current_count'],
                             count_reliable=valid,census_population=baseline,error_band=profile['error_band'],
-                            message=worker.message)
+                            message=worker.message,snapshot_interval_seconds=CAMERA_SNAPSHOT_SECONDS)
                         worker.telemetry=telemetry; worker.publish(telemetry)
                         await asyncio.sleep(.1)
                 except asyncio.CancelledError:

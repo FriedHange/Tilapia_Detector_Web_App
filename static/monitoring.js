@@ -47,7 +47,7 @@ function monitorButton(tank, entry = tankStream(tank.tank_id)) {
 }
 function monitoringTile(tank) {
   const config=monitorConfig(tank.tank_id);
-  return `<article class="monitoring-tile" data-monitor-tank="${escapeHTML(tank.tank_id)}" data-open-tank="${escapeHTML(tank.tank_id)}" tabindex="0" role="group" aria-label="Open ${escapeHTML(tank.name)} live view"><div class="monitoring-tile-header"><div><h3><button class="tank-title" data-action="count" data-id="${escapeHTML(tank.tank_id)}">${escapeHTML(tank.name)}</button></h3><small>${escapeHTML(tank.tank_id)} · ${tank.camera_source ? sourceKind(tank) === 'video' ? 'Recorded video' : 'Tank camera' : 'Source not assigned'}</small></div><span class="pill neutral" data-monitor-field="status">Stopped</span></div><div class="monitoring-preview"><img data-monitor-field="image" alt="Fish view for ${escapeHTML(tank.name)}" hidden><canvas data-monitor-field="overlay" aria-hidden="true" hidden></canvas><div class="monitoring-placeholder" data-monitor-field="placeholder">Start monitoring to see this tank.</div></div><div class="monitoring-values"><div><span>Visible fish</span><strong data-monitor-field="count">—</strong></div><div><span>Camera-view occupancy</span><strong data-monitor-field="occupancy">—</strong></div></div><div class="monitoring-values"><div><span>Saved population</span><strong data-monitor-field="saved">${fmt(tank.current_count)}</strong></div><div><span>Estimated daily feed</span><strong>${fmt(tank.daily_feed_kg,3)} kg</strong></div></div><div class="monitoring-detail"><span data-monitor-field="crossings">Crossings unavailable</span><span data-monitor-field="fps">— updates/s</span></div><p class="monitoring-message" data-monitor-field="message" role="status">${tank.camera_source ? 'Ready to start.' : 'Assign a camera in Edit Tank.'}</p><div class="tank-actions">${action('Start camera', 'monitor-toggle', tank.tank_id, '', 'camera')}${action('Edit Tank', 'tank-edit', tank.tank_id, 'secondary small','edit')}</div></article>`;
+  return `<article class="monitoring-tile" data-monitor-tank="${escapeHTML(tank.tank_id)}" data-open-tank="${escapeHTML(tank.tank_id)}" tabindex="0" role="group" aria-label="Open ${escapeHTML(tank.name)} tank view"><div class="monitoring-tile-header"><div><h3><button class="tank-title" data-action="count" data-id="${escapeHTML(tank.tank_id)}">${escapeHTML(tank.name)}</button></h3><small>${escapeHTML(tank.tank_id)} · ${tank.camera_source ? sourceKind(tank) === 'video' ? 'Recorded video' : 'Tank snapshots' : 'Source not assigned'}</small></div><span class="pill neutral" data-monitor-field="status">Stopped</span></div><div class="monitoring-preview"><img data-monitor-field="image" alt="Fish view for ${escapeHTML(tank.name)}" hidden><canvas data-monitor-field="overlay" aria-hidden="true" hidden></canvas><div class="monitoring-placeholder" data-monitor-field="placeholder">Start monitoring to see this tank.</div></div><div class="monitoring-values"><div><span>Visible fish</span><strong data-monitor-field="count">—</strong></div><div><span>Camera-view occupancy</span><strong data-monitor-field="occupancy">—</strong></div></div><div class="monitoring-values"><div><span>Saved population</span><strong data-monitor-field="saved">${fmt(tank.current_count)}</strong></div><div><span>Estimated daily feed</span><strong>${fmt(tank.daily_feed_kg,3)} kg</strong></div></div><div class="monitoring-detail"><span data-monitor-field="crossings">Crossings unavailable</span><span data-monitor-field="fps">—</span></div><p class="monitoring-message" data-monitor-field="message" role="status">${tank.camera_source ? 'Ready to start.' : 'Assign a camera in Edit Tank.'}</p><div class="tank-actions">${action('Start camera', 'monitor-toggle', tank.tank_id, '', 'camera')}${action('Edit Tank', 'tank-edit', tank.tank_id, 'secondary small','edit')}</div></article>`;
 }
 function updateMonitoringViews() {
   if (!State.user) return;
@@ -71,8 +71,8 @@ function updateMonitoringViews() {
     value('count', data ? fmt(data.live_count) : '—');
     value('saved',fmt(data?.saved_population ?? tank.current_count));
     value('occupancy', data ? `${fmt(data.live_count / Math.max(1, tank.max_capacity) * 100, 1)}%` : '—');
-    value('crossings', data ? `${fmt(data.count_in)} in / ${fmt(data.count_out)} out` : 'Crossings unavailable');
-    value('fps', data ? `${fmt(data.fps, 1)} updates/s` : '— updates/s');
+    value('crossings', data && !data.snapshot_interval_seconds ? `${fmt(data.count_in)} in / ${fmt(data.count_out)} out` : 'Crossings unavailable for snapshots');
+    value('fps', data ? data.snapshot_interval_seconds ? `Snapshot every ${fmt(data.snapshot_interval_seconds,0)} s` : `${fmt(data.fps, 1)} updates/s` : '—');
     value('message', entry?.data?.frame && !entry.data.raw_frame ? 'Preview unavailable. Reload the app and restart this camera to enable display controls.' : delayed ? 'Updates delayed. The last frame is not current.' : entry?.message || (tank.camera_source ? 'Ready to start.' : 'Assign a camera or upload a video.'));
     const badge = root.querySelector('[data-monitor-field="status"]');
     if (badge) badge.className = `pill ${fresh ? '' : delayed || entry?.status === 'starting' ? 'amber' : entry?.status === 'error' ? 'red' : 'neutral'}`;
@@ -90,7 +90,8 @@ function updateMonitoringViews() {
     State.estimate = data?.live_count ?? null;
     $('countValue').textContent = data ? fmt(data.live_count) : '—';
     $('occupancyValue').textContent = data && tank ? `${fmt(data.live_count / Math.max(1,tank.max_capacity) * 100,1)}%` : '—';
-    $('crossingValue').textContent = data ? `${fmt(data.count_in)} in / ${fmt(data.count_out)} out` : '—';
+    $('crossingValue').textContent = data && !data.snapshot_interval_seconds ? `${fmt(data.count_in)} in / ${fmt(data.count_out)} out` : '—';
+    $('crossingValue').parentElement.hidden = !!entry?.data?.snapshot_interval_seconds;
     $('countStatus').textContent = entry?.status === 'running' && !data ? 'Waiting for current frames. The preview may be delayed.' : entry?.message || 'Ready to monitor this tank.';
     const frame = updateCameraPreview($('countPreview'),$('countOverlay'),entry);
     $('countPlaceholder').hidden = !!frame; $('countPlaceholder').textContent=$('countPreview').dataset.previewError || 'Start monitoring to see this tank.';
@@ -140,7 +141,7 @@ function startTankMonitoring(id, observe=false) {
     } else if (data.type === 'error') { finishMonitoring(entry,'error',data.message); return; }
     else if (data.type === 'telemetry' && data.frame && entry.status !== 'stopping') {
       clearTimeout(entry.connectTimer); entry.status = 'running'; entry.data = data; entry.receivedAt = Date.now();
-      entry.message = data.production ? data.message : `${data.source_kind === 'video' ? 'Recorded video · loop ' + (data.playback_cycle + 1) : 'Camera live'} · ${fmt(data.fps,1)} updates/s`;
+      entry.message = data.production ? data.message : data.snapshot_interval_seconds ? `Aquarium snapshot every ${fmt(data.snapshot_interval_seconds,0)} s` : `Recorded video · loop ${data.playback_cycle + 1} · ${fmt(data.fps,1)} updates/s`;
     }
     updateMonitoringViews();
   };

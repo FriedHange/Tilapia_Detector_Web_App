@@ -66,7 +66,7 @@ from detection_profile import (load_profile, settings_for, fingerprint, public_v
 db = DatabaseProxy(FarmDatabase(Path(__file__).parent / "tilapia_web_analytics.db", seed=True))
 from evaluator import ModelEvaluator, parse_yolo_label_text, compute_academic_metrics
 from tracker import FingerlngTracker, nms_dedup
-from monitoring import TankCapture, capture_io
+from monitoring import CAMERA_POLL_SECONDS, CAMERA_SNAPSHOT_SECONDS, TankCapture, capture_io
 from production import ProductionMonitor
 
 # ---------------------------------------------------------------------------
@@ -719,6 +719,7 @@ def _process_frame_worker(
     show_labels: bool = True,
     show_conf: bool = True,
     show_trails: bool = True,
+    snapshot: bool = False,
 ) -> tuple[str, list[dict], list[dict], dict]:
     """
     Synchronous worker combining downscaling, inference (or cached detection reuse),
@@ -734,7 +735,11 @@ def _process_frame_worker(
     settings = (conf, iou, tuple(active_models), fingerprint())
     if run_inference or cached_result is None or cached_result.get("settings") != settings:
         raw_per_model, deduped, raw_results = _infer_frame(frame, False, conf, iou, active_models)
-        deduped = tracker.update_fused(deduped, w, h)
+        if snapshot:
+            # Widely spaced stills cannot establish a fish's path or a line crossing.
+            deduped = [{**fish, "track_id": None} for fish in deduped]
+        else:
+            deduped = tracker.update_fused(deduped, w, h)
         new_cached = {
             "raw_per_model": raw_per_model,
             "deduped": deduped,
@@ -768,6 +773,7 @@ async def _process_frame_payload(
     tank: Optional[dict] = None,
     run_inference: bool = True,
     cached_result: Optional[dict] = None,
+    snapshot: bool = False,
 ) -> tuple[dict, float, dict]:
     """Process a single BGR frame, log to DB at 1Hz, and produce the contextual telemetry dictionary."""
     state.record_frame_time()
@@ -787,6 +793,7 @@ async def _process_frame_payload(
         state.show_labels,
         state.show_conf,
         state.show_trails,
+        snapshot,
     )
 
     # Telemetry
@@ -870,6 +877,7 @@ async def _process_frame_payload(
         "tank_name":             tank.get("name") if tank else None,
         "avg_weight_g":          avg_w,
         "feed_rate_pct":         feed_rate,
+        "snapshot_interval_seconds": CAMERA_SNAPSHOT_SECONDS if snapshot else None,
         "preview_biomass_kg":    preview_biomass_kg,
         "preview_daily_feed_kg": preview_daily_feed_kg,
         "preview_valuation_php": preview_valuation_php,
@@ -919,7 +927,8 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                 await stream_state("error", "Could not open this tank source. Check its settings or whether the camera is in use.")
                 return
             await stream_state("running", "Monitoring active.", source_kind=capture.kind, playback_cycle=0)
-            interval = await capture_io(capture.frame_interval) if capture.kind == "video" else .005
+            interval = await capture_io(capture.frame_interval) if capture.kind == "video" else CAMERA_POLL_SECONDS
+            next_snapshot = 0.0
             while stream_running.is_set():
                 if app.state.production.enabled:
                     await ws.close(code=1012)
@@ -943,14 +952,21 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                     cached_result = None
                     await stream_state("running", "Recorded video restarted; crossings reset.",
                         source_kind="video", playback_cycle=playback_cycle)
+                captured = time.monotonic()
+                if capture.kind == "camera" and captured < next_snapshot:
+                    await asyncio.sleep(max(.005, interval - (time.monotonic() - started)))
+                    continue
+                if capture.kind == "camera":
+                    next_snapshot = captured + CAMERA_SNAPSHOT_SECONDS
                 if not state.active_models:
                     await stream_state("error", "Counting is unavailable. Ask Admin to check the counting service.")
                     break
                 frame_idx += 1
-                do_inference = (frame_idx % state.inference_stride == 0) or (cached_result is None)
+                do_inference = capture.kind == "camera" or (frame_idx % state.inference_stride == 0) or (cached_result is None)
                 telemetry, last_db_log, cached_result = await _process_frame_payload(
                     frame, session_id, frame_idx, last_db_log, "tank_" + capture.kind,
-                    tank=current_tank, run_inference=do_inference, cached_result=cached_result)
+                    tank=current_tank, run_inference=do_inference, cached_result=cached_result,
+                    snapshot=capture.kind == "camera")
                 telemetry.update(source_kind=capture.kind, playback_cycle=playback_cycle)
                 await ws.send_text(json.dumps(public_value(telemetry)))
                 await asyncio.sleep(max(.005, interval - (time.monotonic() - started)))

@@ -13,7 +13,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from camera_process import ProcessCamera
+from camera_process import ProcessCamera, _capture
 import production_launcher
 from windows_job import ProcessJob
 
@@ -91,3 +91,30 @@ class NativeProcessCaptureTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await first.close();await second.close()
             self.assertIsNone(second.process)
+
+
+class SnapshotCaptureTests(unittest.TestCase):
+    def test_live_capture_encodes_only_the_scheduled_stills(self):
+        cameras=[]
+        class Capture:
+            kind='camera'
+            def __init__(self,source):
+                self.reads=0; self.released=False; self.capture=self; cameras.append(self)
+            def open(self): return True
+            def set(self,*args): pass
+            def read(self):
+                self.reads+=1
+                return (True,np.full((32,32,3),self.reads,dtype=np.uint8)) if self.reads<=12 else (False,None)
+            def release(self): self.released=True
+        class Frames:
+            def __init__(self): self.packets=[]
+            def put(self,item): self.packets.append(item)
+            def put_nowait(self,item): self.packets.append(item)
+        frames=Frames()
+        clock=iter(range(20))
+        with patch('monitoring.TankCapture',Capture),patch('camera_process.time.monotonic',side_effect=lambda:next(clock)),patch('camera_process.time.sleep'):
+            _capture('0',frames)
+        stills=[packet for packet in frames.packets if packet[0]=='frame']
+        self.assertEqual([packet[2] for packet in stills],[0,5,10])
+        self.assertEqual(cameras[0].reads,13)
+        self.assertTrue(cameras[0].released)
