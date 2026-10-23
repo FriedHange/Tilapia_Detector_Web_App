@@ -48,8 +48,8 @@ revoke existing sessions.
 - **Analytics & Reports:** population, estimated/confirmed mortality, coverage,
   feeding estimates and dispersal records, including CSV exports.
 - **Benchmarks:** Admin-only fixed counting evaluations outside Production Mode.
-- **Settings (Admin):** installation-wide snapshot and census timing, plus a
-  separate recorded-video defense demo with adjustable sampling and delay.
+- **Settings (Admin):** one installation-wide snapshot interval for cameras and
+  recorded videos, census timing, and a defense-demo reconciliation delay.
 
 Buttons explain their action on hover or keyboard focus. On touch screens, hold
 for half a second to show the explanation without performing the action.
@@ -104,10 +104,10 @@ measures the counting error band and lighting, contrast, sharpness and coarse
 scene reference. At least 90% of counts must be within 5% of known population
 (minimum one fish). Poor or inconsistent views fail validation.
 
-Production analyzes one fresh whole-aquarium snapshot every five seconds by
-default. Non-overlapping 60-second median windows need at least 13 fresh
+Production targets one fresh whole-aquarium snapshot every second by
+default. Non-overlapping 60-second median windows need at least 61 fresh
 samples; three consistent windows give the first possible reconciliation at
-about 190 seconds. Admin can adjust the snapshot interval (1–5 seconds),
+about 182 seconds. Admin can adjust the snapshot interval (1–5 seconds),
 median window (30–300 seconds), matching windows (2–6), and empty-tank windows
 (6–20) in **Settings**. Timing changes restart active census windows. A faster
 setting increases inference load; uncertainty or missed snapshots postpones
@@ -151,12 +151,15 @@ on hardware; slow/stale observations cannot update inventory.
 
 With Production Mode off, Admin opens **Settings**, creates the dedicated demo
 farm, uploads separate before and after clips of the same whole aquarium from
-above (at least nine seconds each; the first ten seconds are sampled), and
+above (at least 25 seconds each; the first 25 seconds are sampled at the shared
+snapshot interval), and
 enters an independently verified opening stock. Start the before phase to
 validate the opening count. Start the after
 phase to sample distinct moments in its clip; a stable result reconciles after
 the configured delay (30 seconds by default, adjustable from 20–60 seconds).
-Clip sampling defaults to every two seconds and can be set to one second.
+Demo sampling follows the clips' original timing; the default one-second
+interval takes 25 distinct samples per clip. The delay is measured from the
+start of the after phase.
 Blurry, inconsistent, mismatched, or empty-tank results hold inventory for
 review. Decreases are estimated losses until a person confirms deaths.
 
@@ -204,7 +207,11 @@ must be validated on the deployment hardware.
 Outside Production Mode, videos loop as labeled demonstrations, camera feeds
 are browser-owned, and counting never changes inventory. Enlarging a view or
 switching modules retains those feeds; closing the page or signing out releases
-them. Playback loops reset crossing counters.
+them. Camera and video views count only periodic snapshots; crossing counters
+and track IDs are unavailable. Video upload progress emits only sampled counts,
+with source-frame positions and a final completion event. Recorded tank videos
+and one-off uploads never change inventory. The isolated defense demo is the
+only recorded-video workflow that can reconcile its simulated farm.
 
 ## Mortality and units
 

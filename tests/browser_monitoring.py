@@ -38,12 +38,19 @@ def main():
         page.wait_for_function("['TANK-01','TANK-02'].every(id=>freshMonitoring(tankStream(id)))")
         assert len(sockets)==2
         assert page.evaluate("['TANK-01','TANK-02'].every(id=>tankStream(id).data.live_count>0)")
+        assert page.evaluate("['TANK-01','TANK-02'].every(id=>tankStream(id).data.snapshot_interval_seconds===1)")
         expect(first.locator('[data-monitor-field=count]')).not_to_have_text('—')
         expect(second.locator('[data-monitor-field=count]')).not_to_have_text('—')
         expect(page.get_by_role('button',name='Stop all',exact=True)).to_be_visible()
         first.locator('.monitoring-preview').click()
         expect(page.locator('#countDialog')).to_be_visible()
+        expect(page.locator('#occupancyGauge')).to_be_visible()
         expect(page.locator('#occupancyValue')).to_contain_text('%')
+        expect(page.locator('#gaugeStatus')).to_have_text('Within capacity')
+        assert page.locator('#gaugeNeedle').get_attribute('x2') != '22'
+        positions=page.evaluate("""() => { const a=document.querySelector('.count-results').getBoundingClientRect(), b=document.querySelector('#occupancyGauge').getBoundingClientRect(); return {top:Math.abs(a.top-b.top),height:Math.abs(a.height-b.height)} }""")
+        assert positions['top']<3 and positions['height']<3,positions
+        page.screenshot(path=str(artifacts/'tank-occupancy-gauge.png'),full_page=True)
         page.locator('#closeCount').click()
         assert len(sockets)==2,'Enlarging created an unnecessary connection'
         # Stop and restart one tank while the second keeps updating.
@@ -51,17 +58,23 @@ def main():
         page.evaluate("Promise.all([toggleTankMonitoring('TANK-01'),toggleTankMonitoring('TANK-01')])")
         expect(first.get_by_role('button',name='Play video',exact=True)).to_be_visible()
         expect(first.locator('[data-monitor-field=count]')).to_have_text('—')
+        first.locator('.monitoring-preview').click()
+        expect(page.locator('#crossingValue').locator('..')).to_be_hidden()
+        expect(page.locator('#gaugeStatus')).to_have_text('No current count')
+        page.screenshot(path=str(artifacts/'tank-monitoring-stopped.png'),full_page=True)
+        page.locator('#closeCount').click()
         page.wait_for_function("old=>tankStream('TANK-02').data.frame_idx>old",arg=previous)
         first.get_by_role('button',name='Play video',exact=True).click()
         page.wait_for_function("freshMonitoring(tankStream('TANK-01'))")
         page.wait_for_function("['TANK-01','TANK-02'].every(id=>tankStream(id).data.playback_cycle>0)")
         # Measure actual concurrent delivery rather than claiming a target FPS.
         initial=page.evaluate("['TANK-01','TANK-02'].map(id=>tankStream(id).data.frame_idx)")
-        started=time.perf_counter();page.wait_for_timeout(5000)
+        started=time.perf_counter();page.wait_for_timeout(6500)
         elapsed=time.perf_counter()-started
         final=page.evaluate("['TANK-01','TANK-02'].map(id=>({tank:id,frame:tankStream(id).data.frame_idx,count:tankStream(id).data.live_count}))")
         measured=[{'tank':row['tank'],'visible_fish':row['count'],'delivered_updates_per_second':round((row['frame']-initial[index])/elapsed,2)} for index,row in enumerate(final)]
         assert all(row['delivered_updates_per_second']>0 for row in measured)
+        assert all(row['delivered_updates_per_second']<2 for row in measured)
         # Dashboard re-renders and module navigation retain the existing sockets.
         page.evaluate("window.savedMonitoringSocket=tankStream('TANK-01').ws")
         page.get_by_role('button',name='Food Management',exact=True).click()
@@ -87,6 +100,7 @@ def main():
         expect(second.locator('[data-monitor-field=status]')).to_have_text('Monitoring')
         first.locator('.monitoring-preview').click()
         expect(page.locator('#countValue')).to_have_text('—')
+        expect(page.locator('#gaugeStatus')).to_have_text('No current count')
         expect(page.locator('#useCount')).to_be_disabled()
         page.locator('#closeCount').click()
         page.evaluate("tankStream('TANK-01').ws.onmessage=window.savedHandler")
@@ -95,7 +109,8 @@ def main():
         second.locator('.monitoring-preview').click()
         photo=Path(__file__).resolve().parents[1]/'static'/'media'/'dataset_sample_1.jpg'
         page.locator('#countPhoto').set_input_files(str(photo))
-        expect(page.locator('#countStatus')).to_have_text('Photo estimate. Review it before saving.')
+        expect(page.locator('#countStatus')).to_have_text('Photo estimate. Review it before saving.',timeout=30000)
+        expect(page.locator('#occupancyValue')).to_contain_text('%')
         expect(page.locator('#useCount')).to_be_enabled()
         assert page.evaluate("window.savedMonitoringSocket===tankStream('TANK-01').ws")
         expect(page.locator('#useCount')).not_to_be_visible()
@@ -117,6 +132,12 @@ def main():
         assert page.evaluate("api('/api/reports').then(r=>r.total_population)")==before
         page.set_viewport_size({'width':390,'height':844})
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),'Mobile grid overflow'
+        first.locator('.monitoring-preview').click()
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),'Mobile tank view overflow'
+        actions=page.evaluate("""() => [...document.querySelectorAll('.inspector-camera .count-actions>*')].map(el=>({top:el.getBoundingClientRect().top,width:el.getBoundingClientRect().width}))""")
+        assert abs(actions[0]['top']-actions[1]['top'])<2 and actions[2]['width']>actions[0]['width'],actions
+        page.screenshot(path=str(artifacts/'tank-monitoring-mobile.png'),full_page=True)
+        page.locator('#closeCount').click()
         page.screenshot(path=str(artifacts/'parallel-monitoring-mobile.png'),full_page=True)
         page.set_viewport_size({'width':1440,'height':1000})
         page.get_by_role('button',name='Stop all',exact=True).click()
@@ -131,6 +152,18 @@ def main():
         page.get_by_role('button',name='Tank Management',exact=True).click()
         page.get_by_role('button',name='Start all',exact=True).click()
         page.wait_for_function("freshMonitoring(tankStream('TANK-01'))")
+        page.set_viewport_size({'width':1920,'height':1080})
+        page.locator('[data-monitor-tank="TANK-01"] .monitoring-preview').click()
+        expect(page.locator('#occupancyGauge')).to_be_visible()
+        page.locator('.inspector-toolbar .display-options summary').click()
+        expect(page.locator('.inspector-toolbar [data-display-choice="show_boxes"]')).to_be_visible()
+        page.locator('.inspector-toolbar .display-options summary').click()
+        layout=page.evaluate("""() => { const rect=s=>document.querySelector(s).getBoundingClientRect(); const camera=rect('.inspector-camera'), side=rect('.inspector-side'), selector=rect('#inspectedTank'), options=rect('.inspector-toolbar .display-options'), back=rect('#closeCount'), view=rect('#countDialog'); return {cameraRight:camera.right,sideLeft:side.left,toolbarBottoms:[selector.bottom,options.bottom,back.bottom],viewBottom:view.bottom,scrollWidth:document.documentElement.scrollWidth} }""")
+        assert layout['sideLeft']>layout['cameraRight'],layout
+        assert max(layout['toolbarBottoms'])-min(layout['toolbarBottoms'])<4,layout
+        assert layout['viewBottom']<=1080 and layout['scrollWidth']<=1920,layout
+        page.screenshot(path=str(artifacts/'admin-tank-1920x1080.png'),full_page=True)
+        page.locator('#closeCount').click()
         page.locator('#farmSelector').select_option('')
         expect(page.get_by_role('heading',name='Farm administration',exact=True)).to_be_visible()
         assert page.evaluate('State.streams.size')==0

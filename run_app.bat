@@ -105,11 +105,11 @@ echo  [INFO] Starting server at http://localhost:8000
 echo  [INFO] Press CTRL+C to stop the server.
 echo.
 
-:: Open browser after 2-second delay (runs in background)
+:: Open browser once server is ready (runs in background)
 python -c "from production_launcher import enabled; import sys; sys.exit(0 if enabled() else 1)" >nul 2>&1
 if errorlevel 1 (
-    echo  [INFO] Dashboard will open automatically in your browser.
-    start "" cmd /c "timeout /t 2 >nul && start http://localhost:8000"
+    echo  [INFO] Dashboard will open automatically in your browser once the server is ready.
+    start "" pythonw open_browser.py
 ) else (
     echo  [INFO] Production Mode is on. Background monitoring starts without opening a browser.
 )

@@ -18,22 +18,33 @@ def clip_frames(path, seconds):
     try:
         fps = capture.get(cv2.CAP_PROP_FPS)
         frames = capture.get(cv2.CAP_PROP_FRAME_COUNT)
-        if not capture.isOpened() or not math.isfinite(fps) or fps <= 0 or frames / fps < 9:
-            raise ValueError('Use a readable clip of about 10 seconds showing the whole aquarium.')
+        if not capture.isOpened() or not math.isfinite(fps) or fps <= 0 or frames / fps < 25:
+            raise ValueError('Use a readable clip of at least 25 seconds showing the whole aquarium.')
         selected = []
-        for offset in range(0, 10, seconds):
+        for offset in range(0, 25, seconds):
             if offset * fps >= frames:
                 break
             capture.set(cv2.CAP_PROP_POS_FRAMES, round(offset * fps))
             ok, frame = capture.read()
             if not ok:
                 break
-            selected.append(frame)
+            # The counting pipeline uses a 640-pixel preview; cap retained
+            # frames to that size so a 1-second demo interval stays bounded.
+            height, width = frame.shape[:2]
+            if max(height, width) > 640:
+                scale = 640 / max(height, width)
+                frame = cv2.resize(frame, (round(width * scale), round(height * scale)),
+                                   interpolation=cv2.INTER_AREA)
+            selected.append((offset, frame))
         if len(selected) < 5:
             raise ValueError('The clip needs at least five distinct sampled moments.')
         return selected
     finally:
         capture.release()
+
+
+async def wait_until(started, offset):
+    await asyncio.sleep(max(0, started + offset - time.monotonic()))
 
 
 def stable_clip(samples, known=None, baseline_quality=None, error_band=None):
@@ -133,13 +144,15 @@ class DemoManager:
             farm_id = setup['farm_id']
             database = await self.accounts.get_database(farm_id)
             settings = self.production.settings
-            frames = await asyncio.to_thread(clip_frames, setup[phase+'_source'], settings['demo_snapshot_seconds'])
+            snapshot_seconds = settings['snapshot_seconds']
+            frames = await asyncio.to_thread(clip_frames, setup[phase+'_source'], snapshot_seconds)
             samples = []
             seen = set()
             async with self.production._context(farm_id, database):
                 tank = await database.get_tank(setup['tank_id'])
                 last_log = 0
-                for index, frame in enumerate(frames, 1):
+                for index, (offset, frame) in enumerate(frames, 1):
+                    await wait_until(switched_at, offset)
                     quality = await asyncio.to_thread(frame_quality, frame)
                     if quality['digest'] in seen or not good_quality(
                             quality, self.before_quality if phase == 'after' else None):
@@ -147,10 +160,11 @@ class DemoManager:
                     seen.add(quality['digest'])
                     telemetry, last_log, _ = await self.production._infer(
                         frame, 'recorded_demo_'+self.run_id, index, last_log, tank,
-                        snapshot_seconds=settings['demo_snapshot_seconds'], source_name='recorded_demo')
+                        snapshot_seconds=snapshot_seconds, source_name='recorded_demo')
                     if telemetry.get('frame'):
                         self.preview_frame = telemetry['frame']
                     samples.append({'count': telemetry['live_count'], 'quality': quality})
+            await wait_until(switched_at, 25)
             if phase == 'before':
                 observed, quality, band = stable_clip(samples, known=setup['starting_count'])
                 self.before_count, self.before_quality, self.error_band = observed, quality, band

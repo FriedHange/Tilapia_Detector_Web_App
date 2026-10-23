@@ -57,7 +57,7 @@ class MonitoringTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         return source
 
-    def test_parallel_videos_loop_reset_and_stop_independently(self):
+    def test_parallel_videos_sample_across_loops_and_stop_independently(self):
         self.request(self.alice,'POST','/api/tanks',json={'tank_id':'TANK-02','name':'Second nursery','current_count':500})
         first_source = self.configure('TANK-01','first.mp4')
         second_source = self.configure('TANK-02','second.mp4')
@@ -68,6 +68,10 @@ class MonitoringTests(unittest.TestCase):
                 self.source=source; self.index=0; self.released=False; captures.append(self)
             def open(self): return True
             def frame_interval(self): return .04
+            def video_info(self): return .04, 2
+            def read_at(self, index):
+                value=(0,100)[index] if self.source==first_source else 200
+                return True,np.full((96,96,3),value,dtype=np.uint8)
             def read(self):
                 if self.index==2:return False,None
                 value=(0,100)[self.index] if self.source==first_source else 200
@@ -80,19 +84,23 @@ class MonitoringTests(unittest.TestCase):
             xs=[10] if marker==0 else [65] if marker==100 else [15,60]
             boxes=[{'x1':x,'y1':10,'x2':x+10,'y2':20,'conf':.99,'class_id':0,'class_name':'Tilapia fingerling'} for x in xs]
             return [],boxes,None
-        with patch.object(app,'TankCapture',Capture), patch.object(app,'_infer_frame',side_effect=infer):
+        with patch.object(app,'TankCapture',Capture), patch.object(app,'_infer_frame',side_effect=infer), patch.dict(app.app.state.production.settings,{'snapshot_seconds':.3}):
             with self.websocket('TANK-01') as first,self.websocket('TANK-02') as second:
                 first.receive_json();second.receive_json()
                 first.send_json({'type':'start_stream'});second.send_json({'type':'start_stream'})
-                crossed=self.receive(first,'telemetry',lambda event:event['count_in']==1)
-                self.assertEqual(crossed['live_count'],1)
+                first_sample=self.receive(first,'telemetry')
+                self.assertEqual(first_sample['live_count'],1)
+                self.assertEqual(first_sample['count_in'],0)
+                self.assertIsNone(first_sample['detections'][0]['track_id'])
                 other=self.receive(second,'telemetry')
                 self.assertEqual(other['live_count'],2)
                 self.assertEqual(other['count_in'],0)
                 self.assertEqual(other['tank_id'],'TANK-02')
                 looped=self.receive(first,'telemetry',lambda event:event['playback_cycle']>0)
                 self.assertEqual(looped['count_in'],0)
-                self.assertGreater(looped['frame_idx'],crossed['frame_idx'])
+                self.assertEqual(looped['frame_idx'],first_sample['frame_idx']+1)
+                self.assertEqual(looped['snapshot_interval_seconds'],.3)
+                self.assertIsNone(looped['detections'][0]['track_id'])
                 self.assertEqual(looped['source_kind'],'video')
                 self.assertAlmostEqual(looped['occupancy_pct'],.1)
                 first.send_json({'type':'stop_stream'})
@@ -105,6 +113,61 @@ class MonitoringTests(unittest.TestCase):
                 self.receive(second,'stream_state',lambda event:event['status']=='stopped')
         self.assertTrue(all(c.released for c in captures))
         self.assertEqual(self.request(self.alice,'GET','/api/reports').json()['total_population'],1500)
+
+    def test_active_video_uses_new_timing_without_restarting_or_decoding_extra_frames(self):
+        self.configure('TANK-01','timing.mp4')
+        positions=[]
+        class Capture:
+            kind='video'
+            def __init__(self,source): pass
+            def open(self): return True
+            def video_info(self): return .05, 500
+            def read_at(self,index):
+                positions.append(index)
+                return True,np.zeros((96,96,3),dtype=np.uint8)
+            def read(self): raise AssertionError('Video should seek directly to the due sample')
+            def release(self): pass
+        def infer(frame,*args): return [],[],None
+        with patch.object(app,'TankCapture',Capture),patch.object(app,'_infer_frame',side_effect=infer),patch.dict(app.app.state.production.settings,{'snapshot_seconds':5}):
+            with self.websocket('TANK-01') as socket:
+                socket.receive_json();socket.send_json({'type':'start_stream'})
+                first=self.receive(socket,'telemetry')
+                self.assertEqual(first['snapshot_interval_seconds'],5)
+                app.app.state.production.settings['snapshot_seconds']=1
+                second=self.receive(socket,'telemetry')
+                self.assertEqual(second['snapshot_interval_seconds'],1)
+                self.assertLess(second['observed_interval_seconds'],2.5)
+                self.assertGreaterEqual(positions[1],15)
+                socket.send_json({'type':'stop_stream'})
+                self.receive(socket,'stream_state',lambda event:event['status']=='stopped')
+
+    def test_slow_video_inference_skips_overdue_source_frames(self):
+        import time
+        self.configure('TANK-01','slow.mp4')
+        positions=[]
+        class Capture:
+            kind='video'
+            def __init__(self,source): pass
+            def open(self): return True
+            def video_info(self): return .01, 1000
+            def read_at(self,index):
+                positions.append(index)
+                return True,np.zeros((96,96,3),dtype=np.uint8)
+            def release(self): pass
+        def infer(frame,*args):
+            time.sleep(.25)
+            return [],[],None
+        with patch.object(app,'TankCapture',Capture),patch.object(app,'_infer_frame',side_effect=infer),patch.dict(app.app.state.production.settings,{'snapshot_seconds':.1}):
+            with self.websocket('TANK-01') as socket:
+                socket.receive_json();socket.send_json({'type':'start_stream'})
+                self.receive(socket,'telemetry')
+                second=self.receive(socket,'telemetry')
+                self.assertGreaterEqual(positions[1]-positions[0],20)
+                self.assertGreaterEqual(second['observed_interval_seconds'],.2)
+                events=self.request(self.alice,'GET','/api/analytics/events').json()
+                self.assertGreaterEqual(sum(event['source']=='tank_video' for event in events),2)
+                socket.send_json({'type':'stop_stream'})
+                self.receive(socket,'stream_state',lambda event:event['status']=='stopped')
 
     def test_unassigned_and_failed_sources_acknowledge_errors_and_release(self):
         with self.websocket('TANK-01') as websocket:

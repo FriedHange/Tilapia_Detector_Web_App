@@ -32,9 +32,15 @@ class CensusTests(unittest.TestCase):
 
     def test_five_second_snapshots_fill_conservative_census_windows(self):
         window=CensusWindow(error_band=0)
-        observations=[window.add(90,index*CAMERA_SNAPSHOT_SECONDS) for index in range(39)]
+        observations=[window.add(90,index*5) for index in range(39)]
         self.assertEqual([value for value in observations if value is not None],[90])
-        self.assertIsNone(window.add(0,39*CAMERA_SNAPSHOT_SECONDS))
+        self.assertIsNone(window.add(0,39*5))
+
+    def test_default_one_second_snapshots_fill_three_windows(self):
+        self.assertEqual(CAMERA_SNAPSHOT_SECONDS,1)
+        window=CensusWindow(error_band=0,minimum_samples=61)
+        observations=[window.add(90,index*CAMERA_SNAPSHOT_SECONDS) for index in range(183)]
+        self.assertEqual([value for value in observations if value is not None],[90])
 
     def test_bad_frames_and_gaps_reset_evidence_and_replays_do_not_advance(self):
         window=CensusWindow(window_seconds=2,minimum_samples=3)

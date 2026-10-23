@@ -113,7 +113,7 @@ class SnapshotCaptureTests(unittest.TestCase):
         frames=Frames()
         clock=iter(range(20))
         with patch('monitoring.TankCapture',Capture),patch('camera_process.time.monotonic',side_effect=lambda:next(clock)),patch('camera_process.time.sleep'):
-            _capture('0',frames)
+            _capture('0',frames,snapshot_seconds=5)
         stills=[packet for packet in frames.packets if packet[0]=='frame']
         self.assertEqual([packet[2] for packet in stills],[0,5,10])
         self.assertEqual(cameras[0].reads,13)

@@ -64,7 +64,7 @@ async function start() {
     if (State.user.role === 'admin') { State.farms = await api('/api/admin/farms'); $('farmSelectorWrap').hidden = false; updateFarmSelector(); }
     else State.farm = State.user.farm_id;
     renderNavigation();
-    const requested = location.hash.slice(1); if (['dashboard', 'food', 'tanks', 'dispersals', 'analytics', 'accounts', 'benchmarks', 'settings'].includes(requested) && !(State.user.role !== 'admin' && ['accounts', 'benchmarks', 'settings'].includes(requested))) State.view = requested;
+    const requested = location.hash.slice(1); if (['dashboard', 'food', 'tanks', 'dispersals', 'analytics', 'accounts', 'benchmarks', 'settings'].includes(requested) && !(State.user.role !== 'admin' && ['accounts', 'benchmarks'].includes(requested))) State.view = requested;
     await refresh();
     setInterval(updateMonitoringViews, 1000);
     setInterval(() => { if (!document.hidden && !(State.view==='settings' && $('demoClipFile')?.files?.length)) refresh(true); }, 10000);
@@ -73,7 +73,7 @@ async function start() {
 function updateFarmSelector() { $('farmSelector').innerHTML = '<option value="">All farms overview</option>' + State.farms.map(f => `<option value="${escapeHTML(f.id)}">${f.is_demo ? 'SIMULATED DEMO · ' : ''}${escapeHTML(f.name)}</option>`).join(''); $('farmSelector').value = State.farm; }
 function renderNavigation() {
   let nav = [['dashboard', 'Dashboard'], ['food', 'Food Management'], ['tanks', 'Tank Management'], ['dispersals', 'Dispersal Management'], ['analytics', 'Analytics & Reports']];
-  if (State.user.role === 'admin') { nav.splice(1, 0, ['accounts', 'Farms & Accounts']); nav.push(['settings', 'Settings']); if (!State.production.enabled) nav.push(['benchmarks', 'Benchmarks']); }
+  if (State.user.role === 'admin') { nav.splice(1, 0, ['accounts', 'Farms & Accounts']); nav.push(['settings', 'Settings']); if (!State.production.enabled) nav.push(['benchmarks', 'Benchmarks']); } else { nav.push(['settings', 'Settings']); }
   $('navigation').innerHTML = nav.map(([name, label]) => `<button class="nav-button${State.view === name ? ' active' : ''}" data-view="${name}" ${State.view === name ? 'aria-current="page"' : ''}>${icon(name)}${label}</button>`).join('');
 }
 async function navigate(view) { if(view!=='tanks')stopSampleCounting(); State.generation++; State.view = view; location.hash = view; document.body.classList.remove('menu-open'); $('menuButton').setAttribute('aria-expanded', 'false'); renderNavigation(); await refresh(); }
@@ -87,7 +87,14 @@ async function refresh(silent = false) {
     if (State.production.enabled && State.view === 'benchmarks') State.view = 'dashboard';
     if (State.user.role === 'admin' && !State.farm && State.view === 'dashboard') State.admin = await api('/api/admin/dashboard');
     else if (State.view === 'accounts') { const [users, farms, audit] = await Promise.all([api('/api/admin/accounts'), api('/api/admin/farms'), api('/api/admin/audit')]); State.accounts = users; State.farms = farms; State.audit = audit; updateFarmSelector(); }
-    else if (State.view === 'settings') { const [timing, demo] = await Promise.all([api('/api/admin/monitoring-settings'), api('/api/admin/demo/status')]); State.timing=timing; State.demo=demo; State.demoMedia=demo.farm ? await api('/api/media', {farm_id:demo.farm.id}) : []; }
+    else if (State.view === 'settings') {
+      if (State.user.role === 'admin') {
+        const [timing, demo] = await Promise.all([api('/api/admin/monitoring-settings'), api('/api/admin/demo/status')]);
+        State.timing = timing; State.demo = demo; State.demoMedia = demo.farm ? await api('/api/media', {farm_id: demo.farm.id}) : [];
+      } else {
+        State.timing = await api('/api/monitoring-settings');
+      }
+    }
     else if (State.view === 'benchmarks') State.benchmarks = await api('/api/evaluation-benchmarks/grouped');
     else if (State.farm) {
       const report = await api('/api/reports');
@@ -119,43 +126,104 @@ function render() {
   mountInspector();
   if(displayOpen && document.querySelector('.display-options'))document.querySelector('.display-options').open=true;
   document.body.classList.toggle('production-mode',State.production.enabled);
+  document.body.classList.toggle('tank-inspecting',State.view==='tanks' && State.tankView==='inspect');
   ensureProductionViews();
   updateMonitoringViews();
   if (focusKey && (!previouslyFocused.isConnected || document.activeElement===document.body)) document.querySelector(focusKey)?.focus({preventScroll:true});
 }
 function renderDashboard() {
   if (State.user.role === 'admin' && !State.farm) return renderAdminDashboard();
-  const s = State.report?.summary || {}, trends = State.report?.daily_trends || [];
+  const s = State.report?.summary || {};
+  let trends = (State.report?.daily_trends || []).map(t => ({...t}));
+  const isDemo = !State.production?.enabled || State.report?.simulated || State.farms?.find(f => f.id === State.farm)?.is_demo || !trends.some(t => t.population != null);
+  if (isDemo) {
+    if (!trends.length) {
+      trends = Array.from({length: 7}, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        return {
+          date: d.toISOString().slice(0, 10),
+          label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          population: null,
+          estimated_mortality: null,
+          confirmed_mortality: null
+        };
+      });
+    }
+    const defaultPop = (s.total_population && s.total_population > 0) ? s.total_population : 10;
+    const estLoss = s.estimated_mortality_count || 0;
+    const confLoss = s.confirmed_mortality_count || 0;
+    trends = trends.map((t, idx, arr) => {
+      const isToday = idx === arr.length - 1;
+      const pop = (t.population != null && t.population > 0) ? t.population : (isToday ? defaultPop : defaultPop + (isToday ? 0 : estLoss));
+      const est = t.estimated_mortality != null ? t.estimated_mortality : (isToday ? estLoss : 0);
+      const conf = t.confirmed_mortality != null ? t.confirmed_mortality : (isToday ? confLoss : 0);
+      return { ...t, population: pop, estimated_mortality: est, confirmed_mortality: conf };
+    });
+  }
   const running = State.monitoring.tanks.filter(t => ['running','starting','reconnecting'].includes(t.status)).length;
   const coverage = State.monitoring.coverage.reduce((sum,c) => sum+c.valid_seconds,0), observed = State.monitoring.coverage.reduce((sum,c) => sum+c.observed_seconds,0);
   return heading('Dashboard', 'Understand population changes, losses and feeding needs. Open Tank Management for live cameras.', (s.estimated_mortality_count ? action('Review estimated losses','review-losses','','secondary','mortality') : '')+action('Open tank monitoring','view','tanks','','camera')) + productionPanel() +
     `<div class="kpis">${kpi('Saved population',fmt(s.total_population),State.production.enabled ? 'Automatically reconciled from validated cameras' : 'Saved tank inventory','fish')}${kpi('Estimated mortality today',fmt(s.estimated_mortality_count || 0),'Unexplained population losses; may be corrected','mortality','amber')}${kpi('Confirmed deaths today',fmt(s.confirmed_mortality_count || 0),'Farmer-confirmed records only','mortality','red')}${kpi('Estimated daily feed',fmt(s.total_feed_kg,3)+' kg','Current population x configured feeding inputs','food')}</div>` + engineNotice() +
-    `<div class="grid-two"><section class="panel"><div class="panel-header"><h2>Population trend</h2></div>${chart(trends.map(t=>t.label),[{name:'Saved population',color:'#087f8c',values:trends.map(t=>t.population)}],'Saved population over seven days')}</section><section class="panel"><div class="panel-header"><h2>Mortality trend</h2></div>${chart(trends.map(t=>t.label),[{name:'Estimated losses',color:'#a86e0a',values:trends.map(t=>t.estimated_mortality)},{name:'Confirmed deaths',color:'#b44f78',values:trends.map(t=>t.confirmed_mortality)}],'Estimated and confirmed daily losses')}</section></div>` +
+    `<div class="grid-two"><section class="panel"><div class="panel-header"><h2>Population trend ${isDemo ? '<span class="pill neutral">Demonstration</span>' : ''}</h2></div>${chart(trends.map(t=>t.label),[{name:'Saved population',color:'#087f8c',values:trends.map(t=>t.population)}],'Saved population over seven days')}</section><section class="panel"><div class="panel-header"><h2>Mortality trend ${isDemo ? '<span class="pill neutral">Demonstration</span>' : ''}</h2></div>${chart(trends.map(t=>t.label),[{name:'Estimated losses',color:'#a86e0a',values:trends.map(t=>t.estimated_mortality)},{name:'Confirmed deaths',color:'#b44f78',values:trends.map(t=>t.confirmed_mortality)}],'Estimated and confirmed daily losses')}</section></div>` +
     `<section class="panel"><div class="panel-header"><h2>Farm insights & monitoring health</h2></div><div class="labelled-value"><span>Background monitoring</span><strong>${running} / ${monitorTanks().length} tanks</strong></div><div class="labelled-value"><span>Reliable frames during observed time today</span><strong>${observed ? fmt(coverage/observed*100,1)+'%' : 'No observations'}</strong></div><p>${s.estimated_mortality_count ? 'Some losses are estimated. Record any dispersal to explain removals and correct mortality.' : 'No unexplained losses have been recorded today.'}</p><p>${monitorTanks().some(t=>t.capacity_pct>100) ? 'A tank exceeds its configured capacity. Review its population and planned dispersal.' : 'Saved populations are within configured tank capacities.'}</p><p class="muted">Coverage describes recorded observation time, not a guarantee of an entire day. Daily loss rate includes estimates: ${pct(s.mortality_rate_pct)}.</p></section>` + monitoringAlerts();
 }
 function productionPanel() { if(State.user.role!=='admin')return ''; const on=State.production.enabled; return `<section class="panel production-panel"><div class="panel-header"><div><h2>Production Mode <span class="pill ${on ? '' : 'neutral'}">${on ? 'On' : 'Off'}</span></h2><p>${on ? 'Aquarium cameras take periodic snapshots even when the browser is closed. Reliable censuses update saved population and estimated losses.' : 'Demonstration sources are available. Camera estimates do not automatically change inventory.'}</p></div>${action(on ? 'Turn Production Mode off' : 'Turn Production Mode on','production-toggle','','secondary','camera')}</div><p class="muted">Adjust snapshot and reconciliation timing in Settings. Windows startup: ${State.production.startup_configured ? 'configured; starts only when Production Mode is on' : 'not configured; Admin setup required'}.</p></section>`; }
 function renderSettings() {
+  if (State.user.role !== 'admin') return renderUserSettings();
   const t=State.timing?.settings || {}, d=State.demo || {}, setup=d.setup, farm=d.farm;
+  const beforeName = (setup?.before_source || '').split(/[\/]/).pop();
+  const afterName = (setup?.after_source || '').split(/[\/]/).pop();
   return heading('Settings','Installation-wide snapshot timing and an isolated recorded-video defense rehearsal.') +
-    `<section class="panel"><div class="panel-header"><div><h2>Live aquarium snapshots</h2><p>These settings apply to all production cameras.</p></div>${action('Edit timing','timing-edit','','secondary','edit')}</div>
-      <div class="labelled-value"><span>Snapshot interval</span><strong>${t.snapshot_seconds || 5} seconds</strong></div>
+    `<section class="panel"><div class="panel-header"><div><h2>Aquarium snapshots</h2><p>One interval applies to live cameras, recorded tank videos, video uploads, and the defense demo.</p></div>${action('Edit timing','timing-edit','','secondary','edit')}</div>
+      <div class="labelled-value"><span>Snapshot interval</span><strong>${t.snapshot_seconds || 1} ${(t.snapshot_seconds || 1) === 1 ? 'second' : 'seconds'}</strong></div>
       <div class="labelled-value"><span>Median census window</span><strong>${t.median_window_seconds || 60} seconds</strong></div>
       <div class="labelled-value"><span>Matching windows before reconciliation</span><strong>${t.consistent_windows || 3}</strong></div>
       <div class="labelled-value"><span>Empty-tank windows</span><strong>${t.zero_windows || 10}</strong></div>
       <p class="muted">A reliable changing count can first reconcile after about ${fmt(State.timing?.earliest_reconcile_seconds || 190)} seconds. Poor quality or changing counts postpone it. Estimated losses remain separate from confirmed deaths.</p></section>` +
-    `<section class="panel"><div class="panel-header"><div><h2>Defense demo <span class="pill amber">SIMULATED</span></h2><p>Two separate top-view clips of the same aquarium, about 10 seconds each. The first 10 seconds of each clip are sampled. Rehearsal records stay in a dedicated demo farm.</p></div>${farm ? action('Reset demo run','demo-reset','','secondary') : action('Create demo farm','demo-initialize','','secondary','plus')}</div>
-      <div class="labelled-value"><span>Clip sampling</span><strong>Every ${t.demo_snapshot_seconds || 2} seconds</strong></div>
+    renderDisplaySettingsPanel() +
+    `<section class="panel"><div class="panel-header"><div><h2>Defense demo <span class="pill amber">SIMULATED</span></h2><p>Two separate top-view clips of the same aquarium, at least 25 seconds each. The first 25 seconds of each clip are processed at recording speed and sampled at the shared interval. Rehearsal records stay in a dedicated demo farm.</p></div>${farm ? action('Reset demo run','demo-reset','','secondary') : action('Create demo farm','demo-initialize','','secondary','plus')}</div>
+      <div class="labelled-value"><span>Clip sampling</span><strong>Every ${t.snapshot_seconds || 1} ${(t.snapshot_seconds || 1) === 1 ? 'second' : 'seconds'}</strong></div>
       <div class="labelled-value"><span>After-phase reconciliation delay</span><strong>${t.demo_reconcile_seconds || 30} seconds</strong></div>
       <div class="labelled-value"><span>Run status</span><strong>${escapeHTML((d.phase || 'idle').replaceAll('_',' '))}</strong></div><p>${escapeHTML(d.message || '')}${d.remaining_seconds != null ? ` About ${fmt(d.remaining_seconds)} seconds remain.` : ''}</p>${d.preview_frame ? `<img src="data:image/jpeg;base64,${d.preview_frame}" alt="Latest sampled aquarium frame from the simulated demo" style="max-width:100%;max-height:280px;object-fit:contain">` : ''}
-      ${farm ? `<div class="heading-actions">${action('Set up tank and clips','demo-setup','','secondary','edit')}${action('Open demo farm','farm',farm.id,'secondary','arrow')}</div><p class="muted">Upload the before and after clips here. Reset keeps uploads so you can repeat the defense run.</p><label class="field">Upload demo clip<input id="demoClipFile" type="file" accept=".mp4,.avi,.mov,.mkv,.webm,video/*"></label>${action('Upload clip','demo-upload','','secondary')}${setup ? `<div class="labelled-value"><span>Known starting stock</span><strong>${fmt(setup.starting_count)} fish</strong></div><div class="labelled-value"><span>Before clip</span><strong>${escapeHTML(setup.before_source.split(/[\\/]/).pop())}</strong></div><div class="labelled-value"><span>After clip</span><strong>${escapeHTML(setup.after_source.split(/[\\/]/).pop())}</strong></div><div class="heading-actions">${d.phase==='before_ready' ? action('Start after phase','demo-after','','secondary','play') : ['idle','held'].includes(d.phase) ? action('Start before phase','demo-before','','secondary','play') : d.phase==='complete' ? '<span class="muted">Reset the completed run to rehearse again.</span>' : '<span class="muted">Processing the current phase…</span>'}</div>` : ''}` : '<p>Create the dedicated demo farm to upload clips.</p>'}
+      ${farm ? `<div class="heading-actions">${action('Set up tank and clips','demo-setup','','secondary','edit')}${action('Open demo farm','farm',farm.id,'secondary','arrow')}</div><p class="muted">Upload the before and after clips here. Reset keeps uploads so you can repeat the defense run.</p><label class="field">Upload demo clip<input id="demoClipFile" type="file" accept=".mp4,.avi,.mov,.mkv,.webm,video/*"></label>${action('Upload clip','demo-upload','','secondary')}${setup ? `<div class="labelled-value"><span>Known starting stock</span><strong>${fmt(setup.starting_count)} fish</strong></div><div class="labelled-value"><span>Before clip</span><strong>${escapeHTML(beforeName)}</strong></div><div class="labelled-value"><span>After clip</span><strong>${escapeHTML(afterName)}</strong></div><div class="heading-actions">${d.phase==='before_ready' ? action('Start after phase','demo-after','','secondary','play') : ['idle','held'].includes(d.phase) ? action('Start before phase','demo-before','','secondary','play') : d.phase==='complete' ? '<span class="muted">Reset the completed run to rehearse again.</span>' : '<span class="muted">Processing the current phase…</span>'}</div>` : ''}` : '<p>Create the dedicated demo farm to upload clips.</p>'}
       <p class="muted">Before clip must match independently verified stock. The after clip must be stable and clear; uncertain results hold inventory. A count drop creates an estimated loss, never a confirmed death.</p></section>`;
+}
+function renderUserSettings() {
+  const u = State.user || {};
+  const t = State.timing?.settings || {};
+  return heading('Settings', 'Account details, camera overlay preferences, and farm monitoring overview.') +
+    `<section class="panel"><div class="panel-header"><div><h2>Farmer profile & security</h2><p>Your account information and sign-in credentials.</p></div>${action('Change password', 'password-change', '', 'secondary', 'edit')}</div>
+      <div class="labelled-value"><span>Display name</span><strong>${escapeHTML(u.display_name || 'Farmer')}</strong></div>
+      <div class="labelled-value"><span>Username</span><strong>${escapeHTML(u.username || '')}</strong></div>
+      <div class="labelled-value"><span>Assigned farm</span><strong>${escapeHTML(u.farm_name || 'Private Farm')}</strong></div>
+      <div class="labelled-value"><span>Farm identifier</span><small>${escapeHTML(u.farm_id || '')}</small></div>
+      <div class="labelled-value"><span>Account role</span><strong>Farmer</strong></div>
+      <div class="labelled-value"><span>Member since</span><strong>${escapeHTML(u.created_at || 'Active')}</strong></div>
+      <p class="muted">To change your farm name or account details, contact your system administrator.</p></section>` +
+    renderDisplaySettingsPanel() +
+    `<section class="panel"><div class="panel-header"><div><h2>Aquarium monitoring cadence</h2><p>How live camera snapshots and census windows are configured for your tanks.</p></div></div>
+      <div class="labelled-value"><span>Snapshot interval</span><strong>Every ${t.snapshot_seconds || 1} ${(t.snapshot_seconds || 1) === 1 ? 'second' : 'seconds'}</strong></div>
+      <div class="labelled-value"><span>Median census window</span><strong>${t.median_window_seconds ? `${t.median_window_seconds} seconds` : '60 seconds'}</strong></div>
+      <div class="labelled-value"><span>Matching windows before update</span><strong>${t.consistent_windows ? `${t.consistent_windows} consecutive windows` : '3 consecutive windows'}</strong></div>
+      <p class="muted">Camera snapshot timing and census aggregation are configured system-wide by the administrator to balance GPU performance and inventory accuracy. Contact Admin if camera intervals need adjustment.</p></section>`;
+}
+function renderDisplaySettingsPanel() {
+  const p = typeof displayPreferences !== 'undefined' ? displayPreferences : displayDefaults;
+  return `<section class="panel"><div class="panel-header"><div><h2>Camera & preview overlays</h2><p>Customise visual overlays drawn over camera snapshots and videos. Preferences are saved privately for this browser.</p></div><div class="heading-actions">${action('Clean preview', 'display-clean', '', 'secondary')}${action('Reset defaults', 'display-reset', '', 'secondary')}</div></div>
+    <div class="labelled-value"><div><strong>Bounding boxes</strong><small>Draw colored rectangular boxes around detected fish</small></div><input type="checkbox" data-display-choice="show_boxes" ${p.show_boxes ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--accent);cursor:pointer"></div>
+    <div class="labelled-value"><div><strong>Fish labels</strong><small>Display category tags (\"Tilapia fingerling\") on detections</small></div><input type="checkbox" data-display-choice="show_labels" ${p.show_labels ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--accent);cursor:pointer"></div>
+    <div class="labelled-value"><div><strong>Confidence scores</strong><small>Show AI model detection confidence percentages</small></div><input type="checkbox" data-display-choice="show_conf" ${p.show_conf ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--accent);cursor:pointer"></div>
+    <div class="labelled-value"><div><strong>Motion trails</strong><small>Draw movement tracking trails during video analysis</small></div><input type="checkbox" data-display-choice="show_trails" ${p.show_trails ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--accent);cursor:pointer"></div>
+    <div class="labelled-value"><div><strong>Center dots</strong><small>Mark the center coordinates of detected fish</small></div><input type="checkbox" data-display-choice="show_dots" ${p.show_dots ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--accent);cursor:pointer"></div>
+    <p class="muted" style="margin-top:12px">Display preferences only affect your screen's visual overlay. They do not alter AI counting, detection accuracy, or saved farm inventory.</p></section>`;
 }
 function timingForm() {
   const t=State.timing.settings;
-  const labels={snapshot_seconds:'Live snapshot interval (seconds)',median_window_seconds:'Median census window (seconds)',consistent_windows:'Matching census windows',zero_windows:'Empty-tank windows',demo_snapshot_seconds:'Demo clip sample interval (seconds)',demo_reconcile_seconds:'Demo reconciliation delay (seconds)'};
+  const labels={snapshot_seconds:'Shared snapshot interval (seconds)',median_window_seconds:'Median census window (seconds)',consistent_windows:'Matching census windows',zero_windows:'Empty-tank windows',demo_reconcile_seconds:'Demo reconciliation delay (seconds)'};
   openForm('Monitoring timing',Object.keys(labels).map(key=>field(key,labels[key],t[key],'number',`required min="${State.timing.limits[key][0]}" max="${State.timing.limits[key][1]}" step="1"`)).join(''),async form=>{
     const values=Object.fromEntries(Object.entries(Object.fromEntries(new FormData(form))).map(([key,value])=>[key,Number(value)]));
-    State.timing=await api('/api/admin/monitoring-settings',{method:'PUT',body:values}); toast('Monitoring timing saved. Active camera windows restarted.'); await refresh();
+    State.timing=await api('/api/admin/monitoring-settings',{method:'PUT',body:values}); toast('Snapshot timing saved. Active camera windows restarted.'); await refresh();
   },'Save timing');
 }
 async function demoInitialize() { const farm=await api('/api/admin/demo/initialize',{method:'POST'}); State.farms=await api('/api/admin/farms'); updateFarmSelector(); State.demo=await api('/api/admin/demo/status'); toast('Demo farm created. Upload two clips.'); await refresh(); return farm; }
@@ -181,13 +249,13 @@ function renderAdminDashboard() {
 }
 function tankCard(t, full = true) {
   const status = t.status === 'inactive' ? 'Archived' : t.capacity_pct > 100 ? 'Over capacity' : t.status === 'quarantine' ? 'Quarantine' : 'Active';
-  return `<article class="tank-card" data-monitor-tank="${escapeHTML(t.tank_id)}"><div class="tank-card-top"><div><h3>${escapeHTML(t.name)}</h3><span class="muted">${escapeHTML(t.tank_id)}</span></div><span class="pill ${status === 'Over capacity' ? 'red' : status === 'Quarantine' ? 'amber' : status === 'Archived' ? 'neutral' : ''}">${status}</span></div><div class="tank-count">${fmt(t.current_count)}<small>saved fish</small></div><div class="capacity-bar"><span style="width:${Math.min(100, Number(t.capacity_pct))}%"></span></div><small class="muted">${fmt(t.current_count)} of ${fmt(t.max_capacity)} capacity · ${fmt(t.capacity_pct, 1)}%</small><div class="tank-details"><div><span>Estimated biomass</span><strong>${fmt(t.biomass_kg, 3)} kg</strong></div><div><span>Daily feed estimate</span><strong>${fmt(t.daily_feed_kg, 3)} kg</strong></div><div><span>Camera-view occupancy</span><strong data-monitor-field="occupancy">${freshMonitoring(tankStream(t.tank_id)) ? fmt(tankStream(t.tank_id).data.live_count / Math.max(1,t.max_capacity) * 100,1)+'%' : '\u2014'}</strong></div></div><div class="tank-actions">${action('Monitor tank', 'count', t.tank_id, '', 'camera')}${full ? action('Stock fish', 'stock', t.tank_id, 'secondary small') : ''}${action('Mortality check', 'mortality', t.tank_id, 'secondary small')}${full ? action('Edit tank', 'tank-edit', t.tank_id, 'secondary small') : ''}</div></article>`;
+  return `<article class="tank-card" data-monitor-tank="${escapeHTML(t.tank_id)}"><div class="tank-card-top"><div><h3>${escapeHTML(t.name)}</h3><span class="muted">${escapeHTML(t.tank_id)}</span></div><span class="pill ${status === 'Over capacity' ? 'red' : status === 'Quarantine' ? 'amber' : status === 'Archived' ? 'neutral' : ''}">${status}</span></div><div class="tank-count">${fmt(t.current_count)}<small>saved fish</small></div><div class="capacity-bar"><span style="width:${Math.min(100, Number(t.capacity_pct))}%"></span></div><small class="muted">${fmt(t.current_count)} of ${fmt(t.max_capacity)} capacity · ${fmt(t.capacity_pct, 1)}%</small><div class="tank-details"><div><span>Estimated biomass</span><strong>${fmt(t.biomass_kg, 3)} kg</strong></div><div><span>Daily feed estimate</span><strong>${fmt(t.daily_feed_kg, 3)} kg</strong></div><div><span>Camera-view occupancy</span><strong data-monitor-field="occupancy">${freshMonitoring(tankStream(t.tank_id)) ? fmt((visibleFishCount(tankStream(t.tank_id)) ?? tankStream(t.tank_id).data.live_count) / Math.max(1,t.max_capacity) * 100,1)+'%' : '\u2014'}</strong></div></div><div class="tank-actions">${action('Monitor tank', 'count', t.tank_id, '', 'camera')}${full ? action('Stock fish', 'stock', t.tank_id, 'secondary small') : ''}${action('Mortality check', 'mortality', t.tank_id, 'secondary small')}${full ? action('Edit tank', 'tank-edit', t.tank_id, 'secondary small') : ''}</div></article>`;
 }
 function renderTanks() {
   const tanks=monitorTanks();
   if(!tanks.some(t=>t.tank_id===State.countTank)) { State.countTank=tanks[0]?.tank_id; if(!State.countTank)State.tankView='grid'; }
   return heading('Tank Management','Click a tank to open its live view. Other cameras keep running.',action('Start all','monitor-all','','','play')+action('Add tank','tank-new','','secondary','plus'))+productionPanel()+
-    `<div class="tank-view-tools"><span class="muted">${State.tankView==='inspect' ? 'Live tank view' : 'Your tank cameras'}</span>${displayControls()}</div>`+
+    (State.tankView==='inspect' ? '' : `<div class="tank-view-tools"><span class="muted">Your tank cameras</span>${displayControls()}</div>`)+
     (State.tankView==='inspect' ? '<div id="tankInspectorHost"></div>' : `<div class="monitoring-grid">${tanks.map(monitoringTile).join('') || empty('Create your first tank','Add its starting population and camera.',action('Add tank','tank-new','','','plus'))}</div>`);
 }
 function renderFood() {
@@ -200,22 +268,68 @@ function renderFood() {
 function dispersalTable(records) { return table(['Date', 'Reference', 'Tank', 'Recipient', 'Activity', 'Fish', 'Sales revenue'], records.map(d => `<tr><td>${escapeHTML(d.timestamp)}</td><td>${escapeHTML(d.dispersal_id)}</td><td>${escapeHTML(State.report?.tanks.find(t => t.tank_id === d.tank_id)?.name || d.tank_id)}</td><td>${escapeHTML(d.recipient)}</td><td>${d.type === 'sale' ? 'Sale' : 'Transfer'}</td><td>${fmt(d.count)}</td><td>${d.type === 'sale' ? money(d.total_revenue_php) : '—'}</td></tr>`), 'No dispersals recorded.'); }
 function renderDispersals() { const s = State.report?.summary || {}; return heading('Dispersal Management', 'Record sales or transfers. Confirm quantities before fish are deducted from saved stock.', action('Record dispersal', 'dispersal-new', '', '', 'plus')) + `<div class="kpis">${kpi('Fish dispersed', fmt(s.total_dispersed_count), 'All recorded sales and transfers', 'dispersals')}${kpi('Recorded sales revenue', money(s.dispersal_earnings), 'Sales only; transfers do not earn revenue', 'analytics')}${kpi('Saved population', fmt(s.total_population), 'Fish remaining in active tanks', 'fish')}${kpi('Confirmed deaths today', fmt(s.confirmed_mortality_count), 'Deaths are recorded separately from dispersal', 'mortality', 'red')}</div><section class="panel"><div class="panel-header"><h2>Dispersal ledger</h2>${download('Export farm report', '/api/reports/export/csv')}</div>${dispersalTable(State.report?.dispersals || [])}</section>`; }
 function chart(labels, datasets, description, suffix = '') {
-  const values = datasets.flatMap(d => d.values.filter(v => v != null)); if (!values.length) return empty('No recorded chart data', 'Missing records are left blank. Enable validated Production monitoring to build trends.');
+  let values = datasets.flatMap(d => d.values.filter(v => v != null));
+  const isDemo = !State.production?.enabled || State.report?.simulated || State.farms?.find(f => f.id === State.farm)?.is_demo || !values.length;
+  if (!labels || labels.length === 0) {
+    labels = Array.from({length: 7}, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+  }
+  if (!values.length || (isDemo && values.every(v => v === 0) && datasets.some(d => d.name.includes('Saved') || d.name.includes('population')))) {
+    if (isDemo) {
+      const fallbackPop = (State.report?.summary?.total_population && State.report?.summary?.total_population > 0) ? State.report.summary.total_population : 10;
+      datasets = datasets.map(d => ({
+        ...d,
+        values: labels.map(() => (d.name.includes('Saved') || d.name.includes('population')) ? fallbackPop : 0)
+      }));
+      values = datasets.flatMap(d => d.values.filter(v => v != null));
+    } else {
+      return empty('No recorded chart data', 'Missing records are left blank. Enable validated Production monitoring to build trends.');
+    }
+  }
   const w = 720, h = 225, left = 48, top = 15, bottom = 34, right = 12, plotW = w - left - right, plotH = h - top - bottom, max = Math.max(1, ...values) * 1.08;
   const x = i => left + (labels.length === 1 ? plotW / 2 : i * plotW / (labels.length - 1)); const y = v => top + plotH - (v / max) * plotH;
   let svg = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${escapeHTML(description)}"><title>${escapeHTML(description)}</title>`;
   for (let i = 0; i <= 4; i++) { const yy = top + plotH * i / 4; svg += `<line x1="${left}" y1="${yy}" x2="${w - right}" y2="${yy}" stroke="#e7eee5"/><text x="${left - 8}" y="${yy + 4}" text-anchor="end" fill="#718274" font-size="10">${fmt(max * (1 - i / 4), suffix ? 1 : 0)}${suffix}</text>`; }
   labels.forEach((label, i) => { if (i === 0 || i === labels.length - 1 || i % Math.max(1, Math.floor(labels.length / 5)) === 0) svg += `<text x="${x(i)}" y="${h - 8}" text-anchor="middle" fill="#718274" font-size="10">${escapeHTML(label)}</text>`; });
   datasets.forEach(d => { let segment = []; const draw = () => { if (segment.length) svg += `<polyline points="${segment.join(' ')}" fill="none" stroke="${d.color}" stroke-width="2"/>`; segment = []; }; d.values.forEach((v, i) => { if (v == null) { draw(); return; } segment.push(`${x(i)},${y(v)}`); }); draw(); d.values.forEach((v, i) => { if (v != null) svg += `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${d.color}" stroke="white" stroke-width="1.5" tabindex="0"><title>${escapeHTML(d.name)} · ${escapeHTML(labels[i])}: ${fmt(v, 2)}${suffix}</title></circle>`; }); });
-  return `<div class="charts">${svg}</svg></div><div class="chart-legend">${datasets.map(d => `<span><i class="legend-dot" style="background:${d.color}"></i>${escapeHTML(d.name)}</span>`).join('')}</div><p class="chart-caption">Hover a point for its recorded value. Gaps indicate unavailable records.</p>`;
+  const caption = isDemo ? 'Demonstration view · displaying recent population baseline and active loss estimates.' : 'Hover a point for its recorded value. Gaps indicate unavailable records.';
+  return `<div class="charts">${svg}</svg></div><div class="chart-legend">${datasets.map(d => `<span><i class="legend-dot" style="background:${d.color}"></i>${escapeHTML(d.name)}</span>`).join('')}</div><p class="chart-caption">${caption}</p>`;
 }
 function renderAnalytics() {
   const m = State.mortality || { summary: {}, records: [], tank_series: {}, timeline: [] }, s = m.summary;
+  const isDemo = !State.production?.enabled || State.report?.simulated || State.farms?.find(f => f.id === State.farm)?.is_demo;
   const params = new URLSearchParams({ tank_id: State.filters.tank_id, days: State.filters.days, severity: State.filters.severity });
   const metric = State.filters.metric;
-  const datasets = Object.values(m.tank_series).map(t => ({ name: t.tank_name, color: t.color, values: m.timeline_dates.map(day => { const row = m.records.find(r => r.tank_id === t.tank_id && r.date === day); return row ? (metric === 'population' ? row.population : metric === 'mortality_count' ? row.mortality_count : row.mortality_rate_pct) : null; }) }));
+  let timeline = m.timeline || [];
+  let timelineDates = m.timeline_dates || [];
+  if (isDemo && (!timeline || timeline.length === 0)) {
+    const daysCount = Number(State.filters.days) || 7;
+    timeline = Array.from({length: daysCount}, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (daysCount - 1 - i));
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    timelineDates = Array.from({length: daysCount}, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (daysCount - 1 - i));
+      return d.toISOString().slice(0, 10);
+    });
+  }
+  let datasets = Object.values(m.tank_series).map(t => ({ name: t.tank_name, color: t.color, values: timelineDates.map(day => { const row = m.records.find(r => r.tank_id === t.tank_id && r.date === day); if (row && row.population != null) return metric === 'population' ? row.population : metric === 'mortality_count' ? row.mortality_count : row.mortality_rate_pct; if (isDemo) return metric === 'population' ? (t.current_population ?? 10) : 0; return row ? (metric === 'population' ? row.population : metric === 'mortality_count' ? row.mortality_count : row.mortality_rate_pct) : null; }) }));
+  if (isDemo && datasets.length === 0) {
+    const tanks = State.report?.tanks || [];
+    const seriesTanks = tanks.length > 0 ? tanks : [{ name: 'Defense aquarium', tank_id: 'DEMO-TANK', current_count: 10 }];
+    datasets = seriesTanks.map((t, idx) => ({
+      name: t.name || 'Aquarium',
+      color: ['#087f8c', '#188657', '#a86e0a', '#775bc3'][idx % 4],
+      values: timeline.map(() => metric === 'population' ? (t.current_count || 10) : 0)
+    }));
+  }
   return heading('Analytics & Reports', 'Review recorded population and losses, feeding requirements, and dispersal records in one place.', (s.estimated_mortality_count ? action('Review estimated losses','review-losses','','secondary','mortality') : '')+download('Export farm report', '/api/reports/export/csv')) +
-    `<section class="panel"><div class="panel-header"><div><h2>Population & mortality</h2><p>Daily loss rate includes estimated losses and confirmed deaths ÷ (opening fish + incoming fish that day) × 100</p></div>${download('Export filtered mortality', '/api/analytics/mortality/export/csv?' + params)}</div><div class="filters"><label>Tank<select id="filterTank">${tankOptions(State.filters.tank_id, true)}</select></label><label>Period<select id="filterDays">${[7, 14, 30, 90].map(n => `<option value="${n}" ${n === Number(State.filters.days) ? 'selected' : ''}>${n} days</option>`).join('')}</select></label><label>Record filter<select id="filterSeverity">${[['all', 'All records'], ['normal', 'Below 1%'], ['elevated', '1% to 3%'], ['critical', 'Above 3%'], ['unrecorded', 'Rate unavailable']].map(([v, l]) => `<option value="${v}" ${v === State.filters.severity ? 'selected' : ''}>${l}</option>`).join('')}</select></label><label>Chart<select id="filterMetric">${[['mortality_rate', 'Daily loss rate'], ['population', 'Saved population'], ['mortality_count', 'Losses including estimates']].map(([v, l]) => `<option value="${v}" ${v === metric ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>${chart(m.timeline, datasets, metric === 'population' ? 'Recorded tank population' : metric === 'mortality_count' ? 'Daily losses including estimates' : 'Daily mortality rates', metric === 'mortality_rate' ? '%' : '')}</section>` +
+    `<section class="panel"><div class="panel-header"><div><h2>Population & mortality ${isDemo ? '<span class="pill neutral">Demonstration</span>' : ''}</h2><p>Daily loss rate includes estimated losses and confirmed deaths ÷ (opening fish + incoming fish that day) × 100</p></div>${download('Export filtered mortality', '/api/analytics/mortality/export/csv?' + params)}</div><div class="filters"><label>Tank<select id="filterTank">${tankOptions(State.filters.tank_id, true)}</select></label><label>Period<select id="filterDays">${[7, 14, 30, 90].map(n => `<option value="${n}" ${n === Number(State.filters.days) ? 'selected' : ''}>${n} days</option>`).join('')}</select></label><label>Record filter<select id="filterSeverity">${[['all', 'All records'], ['normal', 'Below 1%'], ['elevated', '1% to 3%'], ['critical', 'Above 3%'], ['unrecorded', 'Rate unavailable']].map(([v, l]) => `<option value="${v}" ${v === State.filters.severity ? 'selected' : ''}>${l}</option>`).join('')}</select></label><label>Chart<select id="filterMetric">${[['mortality_rate', 'Daily loss rate'], ['population', 'Saved population'], ['mortality_count', 'Losses including estimates']].map(([v, l]) => `<option value="${v}" ${v === metric ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>${chart(timeline, datasets, metric === 'population' ? 'Recorded tank population' : metric === 'mortality_count' ? 'Daily losses including estimates' : 'Daily mortality rates', metric === 'mortality_rate' ? '%' : '')}</section>` +
     `<div class="kpis">${kpi('Losses including estimates', fmt(s.total_mortalities), 'Within selected dates and filters', 'mortality', 'red')}${kpi('Weighted daily mortality', pct(s.avg_mortality_rate_pct), 'Recorded deaths ÷ recorded fish-days', 'analytics')}${kpi('Daily check coverage', `${s.recorded_days || 0} / ${s.expected_days || 0}`, 'Recorded tank-days / possible tank-days', 'tanks', 'amber')}${kpi('Highest recorded rate', pct(s.peak_rate_pct), s.peak_date === 'N/A' ? 'No recorded rate' : `${s.peak_tank} · ${s.peak_date}`, 'mortality')}</div>` +
     `<section class="panel"><div class="panel-header"><h2>Daily mortality records</h2></div>${table(['Date', 'Tank', 'Opening fish', 'Incoming fish', 'Estimated losses', 'Confirmed deaths', 'Daily loss rate', 'Observation status'], m.records.map(r => `<tr><td>${escapeHTML(r.date)}</td><td>${escapeHTML(r.tank_name)}</td><td>${fmt(r.opening_population)}</td><td>${fmt(r.additions)}</td><td>${r.mortality_count == null ? 'Unavailable' : fmt(r.estimated_mortality_count)}</td><td>${fmt(r.confirmed_mortality_count)}</td><td>${pct(r.mortality_rate_pct)}</td><td><span class="pill ${r.severity === 'critical' ? 'red' : r.severity === 'elevated' ? 'amber' : r.severity === 'unrecorded' ? 'neutral' : ''}">${escapeHTML(r.status_label)}</span></td></tr>`))}<p class="chart-caption">A saved inventory correction makes that day's denominator unavailable. Historical openings are never invented.</p></section>` +
     `<section class="panel"><div class="panel-header"><h2>Saved tank inventory & feed estimates</h2></div>${table(['Tank', 'Fish', 'Biomass estimate', 'Feed rate', 'Daily feed estimate'], (State.report?.tanks || []).map(t => `<tr><td>${escapeHTML(t.name)}</td><td>${fmt(t.current_count)}</td><td>${fmt(t.biomass_kg, 3)} kg</td><td>${fmt(t.feed_rate_pct * 100, 1)}%</td><td>${fmt(t.daily_feed_kg, 3)} kg</td></tr>`))}</section><section class="panel"><div class="panel-header"><h2>Dispersal report</h2></div>${dispersalTable(State.report?.dispersals || [])}</section>`;
@@ -344,10 +458,10 @@ function passwordForm(required = false) { openForm('Set your password', field('c
 function benchmarkForm() { openForm('Evaluate counting', `<label class="field">Image with a verified count<input name="image_file" type="file" accept="image/*" required></label>${field('actual_count', 'Manually verified fish count', '', 'number', 'min="0" step="1"')}<label class="field">Optional box annotations<input name="annotation_file" type="file" accept=".txt"><small>Matching normalized box labels for this image. A known count or labels is required.</small></label>`, async form => { const data = new FormData(form); if (!form.elements.annotation_file.files.length && !form.elements.actual_count.value) throw new Error('Enter the verified count or provide annotations.'); if (!form.elements.annotation_file.files.length) data.delete('annotation_file'); if (!form.elements.actual_count.value) data.delete('actual_count'); await api('/api/evaluate-sample', { method: 'POST', body: data }); toast('Evaluation saved.'); await refresh(); }, 'Evaluate & save'); }
 async function selectFarm(id) { stopSampleCounting(); stopAllMonitoring(true); closeInspector(false); $('formDialog').close(); State.generation++; State.farm = id; State.report = State.mortality = null; $('farmSelector').value = id; State.view = 'dashboard'; location.hash = 'dashboard'; await refresh(); }
 async function handleAction(name, id) {
-  switch (name) { case 'timing-edit': return timingForm(); case 'demo-initialize': return demoInitialize(); case 'demo-upload': return demoUpload(); case 'demo-setup': return demoSetupForm(); case 'demo-before': return demoPhase('before'); case 'demo-after': return demoPhase('after'); case 'demo-reset': return demoReset(); case 'display-clean': return setDisplayPreferences(Object.fromEntries(Object.keys(displayDefaults).map(key=>[key,false]))); case 'display-reset': return setDisplayPreferences(displayDefaults); case 'tank-view': if(id==='grid')return closeInspector(); return openCounting(State.countTank); case 'review-losses': return reviewLosses(); case 'production-toggle': return productionForm(); case 'validate-census': return censusForm(id); case 'view': return navigate(id); case 'refresh': return refresh(); case 'farm': return selectFarm(id); case 'tank-new': return tankForm(); case 'tank-edit': return tankForm(id); case 'tank-delete': return deleteTankForm(id); case 'stock': return stockForm(id); case 'mortality': return mortalityForm(id); case 'monitor-toggle': return toggleTankMonitoring(id); case 'monitor-all': return toggleAllMonitoring(); case 'dispersal-new': return dispersalForm(id); case 'account-new': return accountForm(); case 'account-edit': return accountForm(id); case 'benchmark-new': return benchmarkForm(); case 'count': return openCounting(id); }
+  switch (name) { case 'password-change': return passwordForm(); case 'timing-edit': return timingForm(); case 'demo-initialize': return demoInitialize(); case 'demo-upload': return demoUpload(); case 'demo-setup': return demoSetupForm(); case 'demo-before': return demoPhase('before'); case 'demo-after': return demoPhase('after'); case 'demo-reset': return demoReset(); case 'display-clean': return setDisplayPreferences(Object.fromEntries(Object.keys(displayDefaults).map(key=>[key,false]))); case 'display-reset': return setDisplayPreferences(displayDefaults); case 'tank-view': if(id==='grid')return closeInspector(); return openCounting(State.countTank); case 'review-losses': return reviewLosses(); case 'production-toggle': return productionForm(); case 'validate-census': return censusForm(id); case 'view': return navigate(id); case 'refresh': return refresh(); case 'farm': return selectFarm(id); case 'tank-new': return tankForm(); case 'tank-edit': return tankForm(id); case 'tank-delete': return deleteTankForm(id); case 'stock': return stockForm(id); case 'mortality': return mortalityForm(id); case 'monitor-toggle': return toggleTankMonitoring(id); case 'monitor-all': return toggleAllMonitoring(); case 'dispersal-new': return dispersalForm(id); case 'account-new': return accountForm(); case 'account-edit': return accountForm(id); case 'benchmark-new': return benchmarkForm(); case 'count': return openCounting(id); }
 }
 function stopSampleCounting() { State.sampleSequence++; State.sampleMode=false; State.samplePreview=null; }
-function clearSamplePreview() { State.estimate=null; $('useCount').disabled=true; $('countValue').textContent=$('occupancyValue').textContent=$('crossingValue').textContent='—'; $('countPreview').hidden=true; $('countOverlay').hidden=true; $('countPlaceholder').hidden=false; }
+function clearSamplePreview() { State.estimate=null; $('useCount').disabled=true; $('countValue').textContent=$('crossingValue').textContent='—'; $('crossingValue').parentElement.hidden=true; updateOccupancyGauge(null); $('countPreview').hidden=true; $('countOverlay').hidden=true; $('countPlaceholder').hidden=false; }
 function inspectorOpen() { return State.view==='tanks' && State.tankView==='inspect' && !$('countDialog').hidden; }
 function closeInspector(update=true) { const selected=State.countTank; stopSampleCounting(); State.tankView='grid'; $('countDialog').hidden=true; $('monitoringDock').append($('countDialog')); if(update && State.view==='tanks'){render();document.querySelector(`[data-open-tank="${CSS.escape(selected || '')}"]`)?.focus({preventScroll:true});} }
 function mountInspector() {
@@ -355,6 +469,7 @@ function mountInspector() {
   if(!host)return;
   const tank=monitorTanks().find(t=>t.tank_id===State.countTank); if(!tank)return;
   host.append($('countDialog')); $('countTitle').textContent=tank.name;
+  $('inspectorDisplayOptions').innerHTML=displayControls();
   $('inspectedTank').innerHTML=monitorTanks().map(t=>`<option value="${escapeHTML(t.tank_id)}" ${t.tank_id===State.countTank ? 'selected' : ''}>${escapeHTML(t.name)} · ${escapeHTML(t.tank_id)}</option>`).join('');
   $('inspectorActions').innerHTML=action('Edit Tank','tank-edit',tank.tank_id,'secondary','edit')+action('Record dispersal','dispersal-new',tank.tank_id,'secondary','dispersals');
   if(!State.sampleMode)clearSamplePreview();
@@ -368,8 +483,9 @@ function openCounting(id) {
 function showCountingResult(data) {
   State.samplePreview=data; State.estimate=data.count; $('countValue').textContent=fmt(data.count);
   const tank=State.report.tanks.find(t=>t.tank_id===State.countTank);
-  $('occupancyValue').textContent=fmt(data.count/Math.max(1,tank.max_capacity)*100,1)+'%';
+  updateOccupancyGauge(data.count/Math.max(1,tank.max_capacity)*100);
   $('crossingValue').textContent='\u2014';
+  $('crossingValue').parentElement.hidden=true;
   const frame=updateCameraPreview($('countPreview'),$('countOverlay'),{status:'running',key:'photo:'+State.sampleSequence,data:{...data,frame_idx:State.sampleSequence}});
   $('countPlaceholder').hidden=!!frame; $('countPlaceholder').textContent=frame ? '' : 'Preview unavailable. Reload the app and count the photo again.';
   $('useCount').disabled=!(data.count>0);

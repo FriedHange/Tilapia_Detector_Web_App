@@ -2,11 +2,10 @@
 import math
 
 DEFAULTS = {
-    'snapshot_seconds': 5,
+    'snapshot_seconds': 1,
     'median_window_seconds': 60,
     'consistent_windows': 3,
     'zero_windows': 10,
-    'demo_snapshot_seconds': 2,
     'demo_reconcile_seconds': 30,
 }
 LIMITS = {
@@ -14,12 +13,15 @@ LIMITS = {
     'median_window_seconds': (30, 300),
     'consistent_windows': (2, 6),
     'zero_windows': (6, 20),
-    'demo_snapshot_seconds': (1, 2),
     'demo_reconcile_seconds': (20, 60),
 }
 
 
 def validate_settings(data):
+    # Older installations saved a separate demo interval. The shared interval
+    # is authoritative; discard the retired field when loading those records.
+    if isinstance(data, dict):
+        data = {key: value for key, value in data.items() if key != 'demo_snapshot_seconds'}
     if not isinstance(data, dict) or set(data) != set(DEFAULTS):
         raise ValueError('Send every monitoring timing setting.')
     result = {}

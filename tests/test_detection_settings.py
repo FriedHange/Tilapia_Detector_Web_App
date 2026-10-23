@@ -114,7 +114,8 @@ class DetectionSettingsTests(unittest.TestCase):
         import io
         import tempfile
         from pathlib import Path
-        from unittest.mock import MagicMock
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
         from fastapi import UploadFile
         app.state.active_models = ["fish"]
         capture = MagicMock()
@@ -131,6 +132,8 @@ class DetectionSettingsTests(unittest.TestCase):
             with patch.object(app.accounts, "media_directory", return_value=directory), \
                  patch.object(app.cv2, "VideoCapture", return_value=capture), \
                  patch.object(app, "_infer_frame", return_value=({}, [], None)), \
+                 patch.object(app.app.state, "production", SimpleNamespace(settings={'snapshot_seconds':5}), create=True), \
+                 patch.object(app.db, "log_event", new_callable=AsyncMock), \
                  patch.object(app, "_annotate_frame", side_effect=lambda frame, *args: frame), \
                  patch.object(app, "_frame_to_b64", return_value="frame"):
                 asyncio.run(exercise())

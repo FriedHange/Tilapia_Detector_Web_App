@@ -1,10 +1,11 @@
 """Capture lifecycle helpers for independent camera and recorded-video streams."""
 import asyncio
+import math
 import threading
 
 import cv2
 
-CAMERA_SNAPSHOT_SECONDS = 5.0
+CAMERA_SNAPSHOT_SECONDS = 1.0
 CAMERA_POLL_SECONDS = 1.0
 
 
@@ -52,7 +53,21 @@ class TankCapture:
     def frame_interval(self):
         with self.lock:
             fps = self.capture.get(cv2.CAP_PROP_FPS)
-            return 1 / fps if 0 < fps <= 240 else .04
+            return 1 / fps if math.isfinite(fps) and 0 < fps <= 240 else .04
+
+    def video_info(self):
+        with self.lock:
+            fps = self.capture.get(cv2.CAP_PROP_FPS)
+            count = self.capture.get(cv2.CAP_PROP_FRAME_COUNT)
+            interval = 1 / fps if math.isfinite(fps) and 0 < fps <= 240 else .04
+            frames = int(count) if math.isfinite(count) and count > 0 else 0
+            return interval, frames
+
+    def read_at(self, frame_index):
+        with self.lock:
+            if not self.capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index):
+                return self.capture.read()
+            return self.capture.read()
 
     def release(self):
         with self.lock:

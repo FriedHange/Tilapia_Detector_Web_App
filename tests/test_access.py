@@ -292,10 +292,14 @@ class AccessTests(unittest.TestCase):
         import time
         import numpy as np
         timing=self.request(self.admin,'GET','/api/admin/monitoring-settings').json()['settings']
-        self.assertEqual(timing['snapshot_seconds'],5)
+        self.assertEqual(timing['snapshot_seconds'],1)
         changed={**timing,'median_window_seconds':30,'consistent_windows':2}
         self.assertEqual(self.request(self.admin,'PUT','/api/admin/monitoring-settings',json=changed).status_code,200)
         self.assertEqual(self.request(self.alice,'GET','/api/admin/monitoring-settings').status_code,403)
+        user_timing=self.request(self.alice,'GET','/api/monitoring-settings').json()['settings']
+        self.assertEqual(user_timing['snapshot_seconds'],1)
+        alice_me=self.request(self.alice,'GET','/api/auth/me').json()['user']
+        self.assertTrue(alice_me.get('farm_name'))
         self.assertEqual(self.request(self.admin,'PUT','/api/admin/monitoring-settings',json={**changed,'snapshot_seconds':0}).status_code,400)
         farm=self.request(self.admin,'POST','/api/admin/demo/initialize').json()
         self.assertEqual(farm['is_demo'],1)
@@ -308,7 +312,7 @@ class AccessTests(unittest.TestCase):
         self.assertEqual(self.request(self.alice,'GET','/api/reports',headers={'X-Farm-ID':farm['id']}).status_code,404)
         self.assertEqual(self.request(self.admin,'GET','/api/admin/dashboard').json()['summary']['total_farms'],3)
         rng=np.random.default_rng(5)
-        frames=[rng.integers(0,256,(96,96,3),dtype=np.uint8) for _ in range(5)]
+        frames=[(offset,rng.integers(0,256,(96,96,3),dtype=np.uint8)) for offset in range(0,25,5)]
         calls=[]
         async def infer(*args,**kwargs):
             calls.append(1)
@@ -319,7 +323,8 @@ class AccessTests(unittest.TestCase):
                 if status['phase']==phase or status['phase']=='held': return status
                 time.sleep(.05)
             self.fail('Demo phase did not finish.')
-        with patch('demo.clip_frames',return_value=frames),patch.object(app.app.state.production,'_infer',side_effect=infer),patch.dict(app.app.state.production.settings,{'demo_reconcile_seconds':0}):
+        async def no_wait(*args): pass
+        with patch('demo.clip_frames',return_value=frames),patch('demo.wait_until',side_effect=no_wait),patch.object(app.app.state.production,'_infer',side_effect=infer),patch.dict(app.app.state.production.settings,{'demo_reconcile_seconds':0}):
             self.assertEqual(self.request(self.admin,'POST','/api/admin/demo/phase',json={'phase':'before'}).status_code,200)
             self.assertEqual(wait_for('before_ready')['phase'],'before_ready')
             self.assertEqual(self.request(self.admin,'POST','/api/admin/demo/phase',json={'phase':'after'}).status_code,200)
@@ -338,3 +343,32 @@ class AccessTests(unittest.TestCase):
         self.assertEqual(reset['total_population'],10)
         self.assertTrue(before.exists() and after.exists())
         self.assertEqual(self.request(self.alice,'GET','/api/reports').json()['total_population'],1000)
+
+    def test_one_off_video_upload_counts_only_timed_snapshots(self):
+        import cv2
+        import numpy as np
+        video=Path(self.temp.name)/'sample.avi'
+        writer=cv2.VideoWriter(str(video),cv2.VideoWriter_fourcc(*'MJPG'),10,(64,64))
+        self.assertTrue(writer.isOpened())
+        for index in range(12):
+            writer.write(np.full((64,64,3),index*10,dtype=np.uint8))
+        writer.release()
+        before=self.request(self.alice,'GET','/api/reports').json()['total_population']
+        inferred=[]
+        def infer(frame,*args):
+            inferred.append(int(frame[0,0,0]))
+            return [],[{'x1':8,'y1':8,'x2':20,'y2':20,'conf':.9,'class_id':0,
+                         'class_name':'Tilapia fingerling'}],None
+        with patch.dict(app.app.state.production.settings,{'snapshot_seconds':1}), patch.object(app,'_infer_frame',side_effect=infer):
+            response=self.request(self.alice,'POST','/api/upload/video',
+                files={'file':('sample.avi',video.read_bytes(),'video/x-msvideo')})
+        self.assertEqual(response.status_code,200,response.text)
+        events=[json.loads(line[6:]) for line in response.text.splitlines() if line.startswith('data: ')]
+        samples=events[:-1]
+        self.assertEqual(len(samples),2)
+        self.assertEqual(len(inferred),2)
+        self.assertEqual(samples[0]['frame_idx'],1)
+        self.assertGreaterEqual(samples[1]['frame_idx'],10)
+        self.assertEqual([sample['snapshot_interval_seconds'] for sample in samples],[1,1])
+        self.assertEqual(events[-1],{'done':True,'total_frames':12})
+        self.assertEqual(self.request(self.alice,'GET','/api/reports').json()['total_population'],before)

@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import statistics
 import time
 import uuid
 from urllib.parse import urlsplit
@@ -38,6 +39,7 @@ class TankWorker:
     message: str = 'Opening live camera.'
     telemetry: dict = field(default_factory=dict)
     subscribers: set = field(default_factory=set)
+    recent_counts: list = field(default_factory=list)
 
     def publish(self, event):
         for queue in tuple(self.subscribers):
@@ -50,6 +52,7 @@ class TankWorker:
         self.status, self.message = status, message
         if status != 'running':
             self.telemetry = {}
+            self.recent_counts = []
         self.publish({'type':'stream_state','tank_id':self.config['tank_id'],
                       'status':status,'message':message,'source_kind':'camera','production':True})
 
@@ -292,9 +295,16 @@ class ProductionMonitor:
                                 valid=False; window.reset()
                                 await database.monitoring_alert('pending:'+tank_id,str(exc),tank_id)
                         worker.status='running'; worker.message='Monitoring. Automatic census active.' if valid else 'Counting unreliable. Inventory updates are held.'
+                        worker.recent_counts.append(telemetry['live_count'])
+                        if len(worker.recent_counts) > 25:
+                            worker.recent_counts.pop(0)
+                        median_count = int(round(statistics.median(worker.recent_counts))) if worker.recent_counts else telemetry['live_count']
+                        mode_count = statistics.multimode(worker.recent_counts)[-1] if worker.recent_counts else telemetry['live_count']
                         telemetry.update(production=True,source_kind='camera',saved_population=tank['current_count'],
                             count_reliable=valid,census_population=baseline,error_band=profile['error_band'],
-                            message=worker.message,snapshot_interval_seconds=self.settings['snapshot_seconds'])
+                            message=worker.message,snapshot_interval_seconds=self.settings['snapshot_seconds'],
+                            median_count=median_count,
+                            mode_count=mode_count)
                         worker.telemetry=telemetry; worker.publish(telemetry)
                         await asyncio.sleep(.1)
                 except asyncio.CancelledError:

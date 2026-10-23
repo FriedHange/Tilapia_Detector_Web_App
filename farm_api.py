@@ -139,7 +139,7 @@ def register(app, state, state_factory, session_states, db):
         if user["role"] == "user" and requested not in (None, user["farm_id"]):
             return JSONResponse({"detail": "Farm not found."}, status_code=404)
         farm_id = user["farm_id"] if user["role"] == "user" else requested
-        no_farm = path.startswith(("/api/auth/", "/api/admin/")) or path in ("/admin", "/user", "/api/engine",'/api/production')
+        no_farm = path.startswith(("/api/auth/", "/api/admin/")) or path in ("/admin", "/user", "/api/engine", '/api/production', '/api/monitoring-settings')
         if not farm_id and not no_farm and not admin_only:
             return JSONResponse({"detail": "Select a farm before opening its records."}, status_code=400)
         # Benchmarks without a farm are stored in the Admin-owned legacy farm.
@@ -230,7 +230,11 @@ def register(app, state, state_factory, session_states, db):
     @app.get("/api/auth/me")
     async def me():
         user = current_actor.get()
-        return {"user": accounts.public_user(user), "csrf": user["csrf"]}
+        public = accounts.public_user(user)
+        if user.get("farm_id"):
+            farms = await accounts.rows("SELECT name FROM farms WHERE id=?", (user["farm_id"],))
+            public["farm_name"] = farms[0]["name"] if farms else None
+        return {"user": public, "csrf": user["csrf"]}
 
     @app.post("/api/auth/logout")
     async def logout(request: Request):
@@ -318,6 +322,12 @@ def register(app, state, state_factory, session_states, db):
         return {'settings': settings, 'defaults': DEFAULTS, 'limits': LIMITS,
                 'earliest_reconcile_seconds': earliest_reconcile_seconds(settings)}
 
+    @app.get('/api/monitoring-settings')
+    async def user_monitoring_settings():
+        settings = app.state.production.settings
+        return {'settings': settings,
+                'earliest_reconcile_seconds': earliest_reconcile_seconds(settings)}
+
     @app.put('/api/admin/monitoring-settings')
     async def change_monitoring_settings(body:dict):
         if app.state.demo.task and not app.state.demo.task.done():
@@ -358,7 +368,7 @@ def register(app, state, state_factory, session_states, db):
         old = await accounts.demo_setup()
         if old and old['farm_id'] == farm['id']:
             tank_id = old['tank_id']
-            await database.update_tank(tank_id, {'name': name})
+            await database.update_tank(tank_id, {'name': name, 'camera_source': before})
         else:
             tank = await database.create_tank({'tank_id': 'DEMO-TANK', 'name': name,
                 'current_count': 0, 'max_capacity': max(1000, count * 2),

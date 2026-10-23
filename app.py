@@ -28,9 +28,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from collections import deque
 import hashlib
 import io
 import json
+import math
 import re
 import statistics
 import time
@@ -816,10 +818,11 @@ async def _process_frame_payload(
     preview_daily_feed_kg = round(preview_biomass_kg * feed_rate, 2)
     preview_valuation_php = round(preview_biomass_kg * 160.0, 2)
 
-    # DB log at 1 Hz in background task (non-blocking)
+    # Each configured snapshot is evidence; timing jitter must not discard a
+    # one-second sample just because it arrived a fraction early.
     now = time.time()
     new_last_db_log = last_db_log
-    if now - last_db_log >= 1.0:
+    if snapshot or now - last_db_log >= 1.0:
         model_str = ",".join(state.active_models)
         track_ids = [d.get("track_id") for d in deduped if d.get("track_id")]
         t_id = tank.get("tank_id") if tank else "TANK-01"
@@ -903,6 +906,7 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
     server_stream_task: Optional[asyncio.Task] = None
     stream_running = asyncio.Event()
     cached_client_result: Optional[dict] = None
+    client_recent_counts = deque(maxlen=25)
 
     async def stream_state(status, message="", **extra):
         await ws.send_text(json.dumps({"type": "stream_state", "status": status,
@@ -923,7 +927,6 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
     async def _stream_loop(source_val):
         nonlocal frame_idx, last_db_log
         capture = TankCapture(source_val)
-        cached_result = None
         playback_cycle = 0
         try:
             await stream_state("starting", "Opening the tank source.", source_kind=capture.kind)
@@ -931,9 +934,12 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                 await stream_state("error", "Could not open this tank source. Check its settings or whether the camera is in use.")
                 return
             await stream_state("running", "Monitoring active.", source_kind=capture.kind, playback_cycle=0)
-            interval = await capture_io(capture.frame_interval) if capture.kind == "video" else CAMERA_POLL_SECONDS
+            video_interval, video_frames = await capture_io(capture.video_info) if capture.kind == "video" else (0.0, 0)
             snapshot_seconds = app.state.production.settings['snapshot_seconds']
             next_snapshot = 0.0
+            playback_started = time.monotonic()
+            last_snapshot_at = None
+            recent_counts = deque(maxlen=25)
             while stream_running.is_set():
                 if app.state.production.enabled:
                     await ws.close(code=1012)
@@ -941,8 +947,28 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                 if not await accounts.authenticate(ws.cookies.get("tilapia_session")):
                     await ws.close(code=4401)
                     break
+                configured_seconds = app.state.production.settings['snapshot_seconds']
+                if configured_seconds != snapshot_seconds:
+                    snapshot_seconds = configured_seconds
+                    next_snapshot = (last_snapshot_at + snapshot_seconds) if last_snapshot_at is not None else 0.0
                 started = time.monotonic()
-                ret, frame = await capture_io(capture.read)
+                if capture.kind == "video":
+                    if started < next_snapshot:
+                        await asyncio.sleep(min(.25, next_snapshot - started))
+                        continue
+                    if video_frames:
+                        absolute_frame = int((started - playback_started) / video_interval)
+                        new_cycle, target_frame = divmod(absolute_frame, video_frames)
+                        ret, frame = await capture_io(capture.read_at, target_frame)
+                        if new_cycle != playback_cycle:
+                            playback_cycle = new_cycle
+                            await stream_state("running", "Recorded video restarted.",
+                                source_kind="video", playback_cycle=playback_cycle)
+                    else:
+                        # Files without frame-count metadata retain sequential playback.
+                        ret, frame = await capture_io(capture.read)
+                else:
+                    ret, frame = await capture_io(capture.read)
                 if not ret or frame is None:
                     if capture.kind != "video":
                         await stream_state("error", "The camera stopped sending frames. Check its connection and restart.")
@@ -953,28 +979,31 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                         await stream_state("error", "This video contains no readable footage. Choose another video.")
                         break
                     playback_cycle += 1
-                    state.tracker.reset_counts()
-                    cached_result = None
-                    await stream_state("running", "Recorded video restarted; crossings reset.",
+                    await stream_state("running", "Recorded video restarted.",
                         source_kind="video", playback_cycle=playback_cycle)
                 captured = time.monotonic()
-                if capture.kind == "camera" and captured < next_snapshot:
-                    await asyncio.sleep(max(.005, interval - (time.monotonic() - started)))
-                    continue
-                if capture.kind == "camera":
+                if captured >= next_snapshot:
+                    observed_seconds = round(captured - last_snapshot_at, 2) if last_snapshot_at is not None else None
+                    last_snapshot_at = captured
                     next_snapshot = captured + snapshot_seconds
-                if not state.active_models:
-                    await stream_state("error", "Counting is unavailable. Ask Admin to check the counting service.")
-                    break
-                frame_idx += 1
-                do_inference = capture.kind == "camera" or (frame_idx % state.inference_stride == 0) or (cached_result is None)
-                telemetry, last_db_log, cached_result = await _process_frame_payload(
-                    frame, session_id, frame_idx, last_db_log, "tank_" + capture.kind,
-                    tank=current_tank, run_inference=do_inference, cached_result=cached_result,
-                    snapshot=capture.kind == "camera", snapshot_seconds=snapshot_seconds)
-                telemetry.update(source_kind=capture.kind, playback_cycle=playback_cycle)
-                await ws.send_text(json.dumps(public_value(telemetry)))
-                await asyncio.sleep(max(.005, interval - (time.monotonic() - started)))
+                    if not state.active_models:
+                        await stream_state("error", "Counting is unavailable. Ask Admin to check the counting service.")
+                        break
+                    frame_idx += 1
+                    telemetry, last_db_log, _ = await _process_frame_payload(
+                        frame, session_id, frame_idx, last_db_log, "tank_" + capture.kind,
+                        tank=current_tank, run_inference=True, cached_result=None,
+                        snapshot=True, snapshot_seconds=snapshot_seconds)
+                    recent_counts.append(telemetry["live_count"])
+                    median_count = int(round(statistics.median(recent_counts))) if recent_counts else telemetry["live_count"]
+                    mode_count = statistics.multimode(recent_counts)[-1] if recent_counts else telemetry["live_count"]
+                    telemetry.update(source_kind=capture.kind, playback_cycle=playback_cycle,
+                                     observed_interval_seconds=observed_seconds,
+                                     median_count=median_count,
+                                     mode_count=mode_count)
+                    await ws.send_text(json.dumps(public_value(telemetry)))
+                if capture.kind != "video":
+                    await asyncio.sleep(max(.005, CAMERA_POLL_SECONDS - (time.monotonic() - started)))
         except asyncio.CancelledError:
             pass
         except Exception:
@@ -1104,6 +1133,10 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                 frame, session_id, frame_idx, last_db_log, src_tag,
                 tank=current_tank, run_inference=do_inference, cached_result=cached_client_result
             )
+            client_recent_counts.append(telemetry["live_count"])
+            median_count = int(round(statistics.median(client_recent_counts))) if client_recent_counts else telemetry["live_count"]
+            mode_count = statistics.multimode(client_recent_counts)[-1] if client_recent_counts else telemetry["live_count"]
+            telemetry.update(median_count=median_count, mode_count=mode_count)
             await ws.send_text(json.dumps(public_value(telemetry)))
 
     except WebSocketDisconnect:
@@ -1283,10 +1316,14 @@ async def upload_video(file: UploadFile = File(...),
     async def _stream():
         cap = cv2.VideoCapture(str(save_path))
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        fps = fps if math.isfinite(fps) and 0 < fps <= 240 else 25.0
+        snapshot_seconds = app.state.production.settings['snapshot_seconds']
         frame_idx = 0
         session_id = f"vid_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}"
         tracker = FingerlngTracker()
-        t_start = time.time()
+        started = time.monotonic()
+        next_snapshot = 0.0
 
         try:
             while cap.isOpened():
@@ -1294,6 +1331,12 @@ async def upload_video(file: UploadFile = File(...),
                 if not ret:
                     break
                 frame_idx += 1
+                frame_due = started + (frame_idx - 1) / fps
+                await asyncio.sleep(max(0, frame_due - time.monotonic()))
+                captured = time.monotonic()
+                if captured < next_snapshot or (frame_idx > 1 and frame_due + 1 / fps < captured):
+                    continue
+                next_snapshot = captured + snapshot_seconds
 
                 raw_per_model, deduped, _ = await asyncio.to_thread(_infer_frame, frame, False)
                 confs = [d["conf"] for d in deduped]
@@ -1301,12 +1344,7 @@ async def upload_video(file: UploadFile = File(...),
                 live_count = len(deduped)
                 density_pct, status_level = state.density_info(live_count)
 
-                elapsed = time.time() - t_start
-                calc_fps = round(frame_idx / elapsed, 1) if elapsed > 0.05 else 0.0
-
-                # Log every 5 frames
-                if frame_idx % 5 == 0:
-                    await db.log_event(
+                await db.log_event(
                         session_id=session_id,
                         source="video_upload",
                         frame_idx=frame_idx,
@@ -1319,19 +1357,12 @@ async def upload_video(file: UploadFile = File(...),
                         boxes=deduped,
                         track_ids=[],
                         model_metrics=raw_per_model,
-                    )
+                )
 
                 progress = round(frame_idx / total * 100, 1)
 
-                # High-throughput preview optimization:
-                # Full YOLO inference runs on EVERY frame, but thumbnail JPEG encoding &
-                # base64 streaming is throttled to ~10 FPS (every 3 frames) + final/first frames.
-                # This prevents SSE event buffer exhaustion and browser DOM freezes on 900+ frames.
-                is_thumb_frame = (frame_idx == 1 or frame_idx % 3 == 0 or frame_idx == total)
-                thumb_b64 = None
-                if is_thumb_frame:
-                    annotated = await asyncio.to_thread(_annotate_frame, frame, deduped, tracker)
-                    thumb_b64 = await asyncio.to_thread(_frame_to_b64, annotated, 55)
+                annotated = await asyncio.to_thread(_annotate_frame, frame, deduped, tracker)
+                thumb_b64 = await asyncio.to_thread(_frame_to_b64, annotated, 55)
 
                 payload_data = {
                     "frame_idx": frame_idx,
@@ -1339,15 +1370,17 @@ async def upload_video(file: UploadFile = File(...),
                     "progress": progress,
                     "live_count": live_count,
                     "density_pct": round(density_pct, 1),
-                    "fps": calc_fps,
+                    "fps": round(1 / snapshot_seconds, 1),
                     "avg_conf": round(avg_conf, 3),
                     "status": status_level,
+                    "source_kind": "video",
+                    "snapshot_interval_seconds": snapshot_seconds,
+                    "thumb": thumb_b64,
                 }
-                if thumb_b64 is not None:
-                    payload_data["thumb"] = thumb_b64
-
                 yield f"data: {json.dumps(payload_data)}\n\n"
 
+            if frame_idx and frame_idx <= total:
+                await asyncio.sleep(max(0, started + frame_idx / fps - time.monotonic()))
         finally:
             cap.release()
             save_path.unlink(missing_ok=True)
@@ -1482,7 +1515,12 @@ async def api_commit_dispersal(body: dict):
 @app.get("/api/reports")
 async def api_reports():
     """Aggregated farm metrics, feed schedule, and dispersal ledger."""
-    return {**await db.get_production_report(), 'simulated': await _is_demo_farm()}
+    is_demo = await _is_demo_farm()
+    if is_demo and not await db.get_tanks():
+        await db.create_tank({'tank_id': 'DEMO-TANK', 'name': 'Defense aquarium',
+                              'current_count': 10, 'max_capacity': 50})
+        await db.reset_demo_run('DEMO-TANK', 10)
+    return {**await db.get_production_report(), 'simulated': is_demo}
 
 
 async def _is_demo_farm():
@@ -1493,7 +1531,12 @@ async def _is_demo_farm():
 @app.get("/api/reports/production")
 async def api_production_report():
     """Returns population per tank, mortality %, total feed (KG), inventory PHP value, and dispersal earnings."""
-    return {**await db.get_production_report(), 'simulated': await _is_demo_farm()}
+    is_demo = await _is_demo_farm()
+    if is_demo and not await db.get_tanks():
+        await db.create_tank({'tank_id': 'DEMO-TANK', 'name': 'Defense aquarium',
+                              'current_count': 10, 'max_capacity': 50})
+        await db.reset_demo_run('DEMO-TANK', 10)
+    return {**await db.get_production_report(), 'simulated': is_demo}
 
 
 @app.get("/api/reports/export/csv")

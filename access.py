@@ -145,24 +145,36 @@ class Accounts:
         async with self.lock:
             rows = await self.rows('SELECT * FROM farms WHERE is_demo=1 LIMIT 1')
             if rows:
-                return rows[0]
-            farm_id=uuid.uuid4().hex
-            await self.conn.execute('INSERT INTO farms(id,name,created_at,is_demo) VALUES(?,?,?,1)',
-                                    (farm_id,'Defense demo',now_text()))
-            await self.conn.execute('INSERT INTO audit_log(actor_id,farm_id,action,detail,timestamp) VALUES(?,?,?,?,?)',
-                                    (actor['id'] if actor else None,farm_id,'demo_farm','Created',now_text()))
-            await self.conn.commit()
-        return (await self.rows('SELECT * FROM farms WHERE id=?',(farm_id,)))[0]
+                farm = rows[0]
+            else:
+                farm_id = uuid.uuid4().hex
+                await self.conn.execute('INSERT INTO farms(id,name,created_at,is_demo) VALUES(?,?,?,1)',
+                                        (farm_id, 'Defense demo', now_text()))
+                await self.conn.execute('INSERT INTO audit_log(actor_id,farm_id,action,detail,timestamp) VALUES(?,?,?,?,?)',
+                                        (actor['id'] if actor else None, farm_id, 'demo_farm', 'Created', now_text()))
+                await self.conn.commit()
+                farm = (await self.rows('SELECT * FROM farms WHERE id=?', (farm_id,)))[0]
+        db = await self.get_database(farm['id'])
+        if not await db.get_tanks():
+            await db.create_tank({'tank_id': 'DEMO-TANK', 'name': 'Defense aquarium',
+                                  'current_count': 10, 'max_capacity': 50})
+            await db.reset_demo_run('DEMO-TANK', 10)
+            setup = await self.demo_setup()
+            if not setup or setup.get('farm_id') != farm['id']:
+                await self.save_demo_setup({'farm_id': farm['id'], 'tank_id': 'DEMO-TANK',
+                                            'tank_name': 'Defense aquarium', 'starting_count': 10,
+                                            'before_source': '', 'after_source': ''}, actor)
+        return farm
 
     async def demo_setup(self):
         rows=await self.rows("SELECT value FROM installation_settings WHERE key='demo_setup'")
         return json.loads(rows[0]['value']) if rows else None
 
-    async def save_demo_setup(self, setup, actor):
+    async def save_demo_setup(self, setup, actor=None):
         async with self.lock:
             await self.conn.execute("INSERT OR REPLACE INTO installation_settings VALUES('demo_setup',?)",(json.dumps(setup),))
             await self.conn.execute('INSERT INTO audit_log(actor_id,farm_id,action,detail,timestamp) VALUES(?,?,?,?,?)',
-                                    (actor['id'],setup['farm_id'],'demo_setup','Configured demo tank and clips',now_text()))
+                                    (actor['id'] if actor else None,setup['farm_id'],'demo_setup','Configured demo tank and clips',now_text()))
             await self.conn.commit()
 
     async def set_production(self, enabled, actor):

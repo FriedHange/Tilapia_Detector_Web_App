@@ -127,11 +127,23 @@ class FarmDatabase(ProductionRecords, Database):
                     await self._conn.execute(f'DELETE FROM {table}')
                 await self._conn.execute('UPDATE tanks SET current_count=? WHERE tank_id=?',
                                          (starting_count, tank_id))
+                today_dt = datetime.strptime(now_text()[:10], '%Y-%m-%d').date()
+                start_dt = today_dt - timedelta(days=6)
+                start_date = start_dt.isoformat()
                 await self._conn.execute('INSERT INTO inventory_baselines VALUES(?,?,0,1)',
-                                         (tank_id, now_text()[:10]))
+                                         (tank_id, start_date))
                 if starting_count:
                     await self._movement(tank_id, 'stocking', starting_count,
-                                         uuid.uuid4().hex, 'Simulated demo opening stock', now_text())
+                                         uuid.uuid4().hex, 'Simulated demo opening stock', f'{start_date} 08:00:00')
+                for offset in range(7):
+                    day_str = (start_dt + timedelta(days=offset)).isoformat()
+                    await self._conn.execute('INSERT OR IGNORE INTO mortality_checks VALUES(?,?,?)',
+                                             (tank_id, day_str, f'{day_str} 17:00:00'))
+                    await self._conn.execute('INSERT OR IGNORE INTO monitoring_daily VALUES(?,?,3600,3600,?)',
+                                             (tank_id, day_str, now_text()))
+                feed_id = uuid.uuid4().hex
+                await self._conn.execute('INSERT OR IGNORE INTO feed_items VALUES(?,?,?,?)',
+                                         (feed_id, 'Demo Tilapia Grower Pellets', 25.0, 5.0))
                 await self._conn.execute('UPDATE monitoring_config SET validation=NULL,revision=revision+1,updated_at=? WHERE tank_id=?',
                                          (now_text(), tank_id))
                 await self._conn.commit()
