@@ -12,6 +12,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from access import (accounts, current_actor, current_database, current_farm,
                     current_session, digest)
 from detection_profile import DETECTORS, fingerprint, load_profile, public_value
+from monitoring_settings import DEFAULTS, LIMITS, earliest_reconcile_seconds
+from farm_database import integer
 
 ROOT = Path(__file__).parent
 COOKIE = "tilapia_session"
@@ -266,7 +268,7 @@ def register(app, state, state_factory, session_states, db):
 
     @app.get("/api/admin/dashboard")
     async def admin_dashboard():
-        farms = await list_farms()
+        farms = [farm for farm in await list_farms() if not farm['is_demo']]
         for farm in farms:
             database = await accounts.get_database(farm["id"])
             farm["summary"] = (await database.get_production_report())["summary"]
@@ -305,8 +307,81 @@ def register(app, state, state_factory, session_states, db):
     async def change_production(body:dict):
         if type(body.get('enabled')) is not bool:
             raise ValueError('Production Mode must be enabled or disabled.')
+        if body['enabled'] and app.state.demo.task and not app.state.demo.task.done():
+            raise ValueError('Finish or reset the recorded demo before enabling Production Mode.')
         await app.state.production.set_enabled(body['enabled'],current_actor.get())
         return await production_status()
+
+    @app.get('/api/admin/monitoring-settings')
+    async def monitoring_settings():
+        settings = app.state.production.settings
+        return {'settings': settings, 'defaults': DEFAULTS, 'limits': LIMITS,
+                'earliest_reconcile_seconds': earliest_reconcile_seconds(settings)}
+
+    @app.put('/api/admin/monitoring-settings')
+    async def change_monitoring_settings(body:dict):
+        if app.state.demo.task and not app.state.demo.task.done():
+            raise ValueError('Finish or reset the recorded demo before changing timing.')
+        await app.state.production.update_settings(body, current_actor.get())
+        return await monitoring_settings()
+
+    @app.get('/api/admin/demo/status')
+    async def demo_status():
+        return await app.state.demo.status()
+
+    @app.post('/api/admin/demo/initialize')
+    async def demo_initialize():
+        if app.state.production.enabled:
+            raise ValueError('Turn off Production Mode to set up the recorded demo.')
+        return await accounts.demo_farm(create=True, actor=current_actor.get())
+
+    @app.post('/api/admin/demo/setup')
+    async def demo_setup(body:dict):
+        if app.state.production.enabled:
+            raise ValueError('Turn off Production Mode to set up the recorded demo.')
+        farm = await accounts.demo_farm()
+        if not farm:
+            raise ValueError('Create the demo farm first.')
+        if body.get('whole_view') is not True:
+            raise ValueError('Confirm both clips show the entire same aquarium from above.')
+        count = integer(body.get('starting_count'), 'Starting fish count')
+        name = str(body.get('tank_name', 'Defense aquarium')).strip()
+        if not name or len(name) > 120:
+            raise ValueError('Enter a demo tank name up to 120 characters.')
+        before = validate_source(body.get('before_source', ''), farm['id'])
+        after = validate_source(body.get('after_source', ''), farm['id'])
+        from production import is_live
+        if not before or not after or is_live(before) or is_live(after) or before == after:
+            raise ValueError('Choose two different uploaded videos from the demo farm.')
+        await app.state.demo.stop()
+        database = await accounts.get_database(farm['id'])
+        old = await accounts.demo_setup()
+        if old and old['farm_id'] == farm['id']:
+            tank_id = old['tank_id']
+            await database.update_tank(tank_id, {'name': name})
+        else:
+            tank = await database.create_tank({'tank_id': 'DEMO-TANK', 'name': name,
+                'current_count': 0, 'max_capacity': max(1000, count * 2),
+                'camera_source': before})
+            tank_id = tank['tank_id']
+        await accounts.save_demo_setup({'farm_id': farm['id'], 'tank_id': tank_id,
+            'tank_name': name, 'starting_count': count, 'before_source': before, 'after_source': after},
+            current_actor.get())
+        return await app.state.demo.reset()
+
+    @app.post('/api/admin/demo/phase')
+    async def demo_phase(body:dict):
+        setup = await accounts.demo_setup()
+        farm = await accounts.demo_farm()
+        if setup and farm:
+            for key in ('before_source', 'after_source'):
+                if validate_source(setup[key], farm['id']) != setup[key]:
+                    raise ValueError('A demo clip moved or changed. Set up the clips again.')
+        return await app.state.demo.start_phase(body.get('phase'))
+
+    @app.post('/api/admin/demo/reset')
+    async def demo_reset():
+        return await app.state.demo.reset()
 
     @app.get('/api/monitoring')
     async def monitoring_status():
@@ -362,7 +437,8 @@ def register(app, state, state_factory, session_states, db):
     async def media_list():
         directory = accounts.media_directory(current_farm.get())
         return [{"name": file.name, "source": str(file), "url": f"/media/{file.name}?farm_id={current_farm.get()}"}
-                for file in directory.iterdir() if file.is_file() and file.suffix.lower() in (".mp4", ".avi", ".mov", ".mkv", ".webm")]
+                for file in sorted(directory.iterdir(), key=lambda entry: entry.stat().st_mtime)
+                if file.is_file() and file.suffix.lower() in (".mp4", ".avi", ".mov", ".mkv", ".webm")]
 
     @app.get("/media/{filename}")
     async def media_file(filename: str):

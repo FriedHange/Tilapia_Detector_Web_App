@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sqlite3
@@ -15,6 +16,7 @@ from pathlib import Path
 import aiosqlite
 
 from farm_database import FarmDatabase, now_text
+from monitoring_settings import DEFAULTS, validate_settings
 
 BASE = Path(__file__).resolve().parent
 DATA = BASE / "private_data"
@@ -98,7 +100,10 @@ class Accounts:
                 actor_id TEXT, farm_id TEXT,action TEXT NOT NULL,detail TEXT NOT NULL,timestamp TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS installation_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
         """)
-        await self.conn.execute("INSERT OR IGNORE INTO farms VALUES('legacy','Existing farm',?)", (now_text(),))
+        farm_columns = await self.rows('PRAGMA table_info(farms)')
+        if not any(column['name'] == 'is_demo' for column in farm_columns):
+            await self.conn.execute('ALTER TABLE farms ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0')
+        await self.conn.execute("INSERT OR IGNORE INTO farms(id,name,created_at,is_demo) VALUES('legacy','Existing farm',?,0)", (now_text(),))
         await self.conn.execute("DELETE FROM login_sessions WHERE expires_at<=?", (time.time(),))
         await self.conn.commit()
         username, password = os.getenv("TILAPIA_ADMIN_USERNAME"), os.getenv("TILAPIA_ADMIN_PASSWORD")
@@ -112,6 +117,53 @@ class Accounts:
     async def production_enabled(self):
         rows = await self.rows("SELECT value FROM installation_settings WHERE key='production'")
         return bool(rows and rows[0]['value']=='1')
+
+    async def monitoring_settings(self):
+        rows = await self.rows("SELECT value FROM installation_settings WHERE key='monitoring_timing'")
+        if not rows:
+            return dict(DEFAULTS)
+        return validate_settings(json.loads(rows[0]['value']))
+
+    async def set_monitoring_settings(self, settings, actor):
+        settings = validate_settings(settings)
+        async with self.lock:
+            try:
+                await self.conn.execute('BEGIN IMMEDIATE')
+                await self.conn.execute("INSERT OR REPLACE INTO installation_settings VALUES('monitoring_timing',?)", (json.dumps(settings),))
+                await self.conn.execute('INSERT INTO audit_log(actor_id,action,detail,timestamp) VALUES(?,?,?,?)',
+                    (actor['id'], 'monitoring_timing', json.dumps(settings), now_text()))
+                await self.conn.commit()
+            except Exception:
+                await self.conn.rollback()
+                raise
+        return settings
+
+    async def demo_farm(self, create=False, actor=None):
+        rows = await self.rows('SELECT * FROM farms WHERE is_demo=1 LIMIT 1')
+        if rows or not create:
+            return rows[0] if rows else None
+        async with self.lock:
+            rows = await self.rows('SELECT * FROM farms WHERE is_demo=1 LIMIT 1')
+            if rows:
+                return rows[0]
+            farm_id=uuid.uuid4().hex
+            await self.conn.execute('INSERT INTO farms(id,name,created_at,is_demo) VALUES(?,?,?,1)',
+                                    (farm_id,'Defense demo',now_text()))
+            await self.conn.execute('INSERT INTO audit_log(actor_id,farm_id,action,detail,timestamp) VALUES(?,?,?,?,?)',
+                                    (actor['id'] if actor else None,farm_id,'demo_farm','Created',now_text()))
+            await self.conn.commit()
+        return (await self.rows('SELECT * FROM farms WHERE id=?',(farm_id,)))[0]
+
+    async def demo_setup(self):
+        rows=await self.rows("SELECT value FROM installation_settings WHERE key='demo_setup'")
+        return json.loads(rows[0]['value']) if rows else None
+
+    async def save_demo_setup(self, setup, actor):
+        async with self.lock:
+            await self.conn.execute("INSERT OR REPLACE INTO installation_settings VALUES('demo_setup',?)",(json.dumps(setup),))
+            await self.conn.execute('INSERT INTO audit_log(actor_id,farm_id,action,detail,timestamp) VALUES(?,?,?,?,?)',
+                                    (actor['id'],setup['farm_id'],'demo_setup','Configured demo tank and clips',now_text()))
+            await self.conn.commit()
 
     async def set_production(self, enabled, actor):
         async with self.lock:
@@ -159,7 +211,7 @@ class Accounts:
         async with self.lock:
             try:
                 await self.conn.execute("BEGIN IMMEDIATE")
-                await self.conn.execute("INSERT INTO farms VALUES(?,?,?)", (farm_id, farm_name, now_text()))
+                await self.conn.execute("INSERT INTO farms(id,name,created_at,is_demo) VALUES(?,?,?,0)", (farm_id, farm_name, now_text()))
                 await self.conn.execute("INSERT INTO users VALUES(?,?,?,?,?,?,1,1,?)",
                     (user_id, username, name, hashed, "user", farm_id, now_text()))
                 await self.conn.execute("INSERT INTO audit_log(actor_id,farm_id,action,detail,timestamp) VALUES(?,?,?,?,?)",

@@ -166,7 +166,7 @@ class MonitoringTests(unittest.TestCase):
             inferred.append(int(frame[0,0,0]))
             x=10 if len(inferred)%2 else 70
             return [],[{'x1':x,'y1':10,'x2':x+10,'y2':20,'conf':.99,'class_id':0,'class_name':'Tilapia fingerling'}],None
-        with patch.object(app,'TankCapture',Capture),patch.object(app,'CAMERA_POLL_SECONDS',.01),patch.object(app,'CAMERA_SNAPSHOT_SECONDS',.3),patch.object(app,'_infer_frame',side_effect=infer):
+        with patch.object(app,'TankCapture',Capture),patch.object(app,'CAMERA_POLL_SECONDS',.01),patch.dict(app.app.state.production.settings,{'snapshot_seconds':.3}),patch.object(app,'_infer_frame',side_effect=infer):
             with self.websocket('TANK-01') as socket:
                 socket.receive_json(); socket.send_json({'type':'start_stream'})
                 first=self.receive(socket,'telemetry')

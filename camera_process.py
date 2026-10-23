@@ -3,12 +3,13 @@ import asyncio
 import multiprocessing
 import queue
 import time
+from monitoring import CAMERA_SNAPSHOT_SECONDS
 
 
-def _capture(source, frames):
+def _capture(source, frames, snapshot_seconds=CAMERA_SNAPSHOT_SECONDS):
     # Import in the child; do not import app or load GPU models here.
     import cv2
-    from monitoring import CAMERA_POLL_SECONDS, CAMERA_SNAPSHOT_SECONDS, TankCapture
+    from monitoring import CAMERA_POLL_SECONDS, TankCapture
     camera = TankCapture(source)
     parent = multiprocessing.parent_process()
     try:
@@ -28,7 +29,7 @@ def _capture(source, frames):
                 time.sleep(interval)
                 continue
             if camera.kind=='camera':
-                next_snapshot=captured+CAMERA_SNAPSHOT_SECONDS
+                next_snapshot=captured+snapshot_seconds
             height,width=frame.shape[:2]
             if max(height,width)>640:
                 scale=640/max(height,width)
@@ -54,15 +55,15 @@ def _capture(source, frames):
 
 
 class ProcessCamera:
-    def __init__(self, source, timeout=8):
-        self.source, self.timeout = source, timeout
+    def __init__(self, source, timeout=8, snapshot_seconds=CAMERA_SNAPSHOT_SECONDS):
+        self.source, self.timeout, self.snapshot_seconds = source, timeout, snapshot_seconds
         self.process = None
         self.frames = None
 
     async def open(self):
         context = multiprocessing.get_context('spawn')
         self.frames = context.Queue(maxsize=1)
-        self.process = context.Process(target=_capture,args=(self.source,self.frames),daemon=True)
+        self.process = context.Process(target=_capture,args=(self.source,self.frames,self.snapshot_seconds),daemon=True)
         self.process.start()
 
     async def read(self):

@@ -13,7 +13,7 @@ from camera_process import ProcessCamera
 from census import CensusWindow, frame_quality, good_quality, validation_profile
 from detection_profile import fingerprint
 from farm_database import now_text
-from monitoring import CAMERA_SNAPSHOT_SECONDS
+from monitoring_settings import DEFAULTS, minimum_samples
 
 log = logging.getLogger('tilapia.production')
 
@@ -59,6 +59,7 @@ class ProductionMonitor:
         self.accounts, self.state_factory, self.processor = accounts,state_factory,processor
         self.engine_ready, self.capture_factory = engine_ready,capture_factory
         self.window_factory=window_factory
+        self.settings=dict(DEFAULTS)
         self.enabled = False
         self.workers, self.validations, self.validation_status = {},{},{}
         self.validation_sources={}
@@ -86,6 +87,7 @@ class ProductionMonitor:
             self.instance_lock.close(); self.instance_lock=None
             raise RuntimeError('Another server already owns this installation. Run one Uvicorn worker.')
         self.enabled = await self.accounts.production_enabled()
+        self.settings = await self.accounts.monitoring_settings()
         self.heartbeat = self.accounts.path.parent/'monitor-heartbeat.json'
         self.task = asyncio.create_task(self._supervise())
 
@@ -118,6 +120,30 @@ class ProductionMonitor:
                 self.workers.clear()
         await self.sync()
 
+    async def update_settings(self, settings, actor):
+        async with self.lock:
+            self.settings = await self.accounts.set_monitoring_settings(settings, actor)
+            for task in self.validations.values():
+                task.cancel()
+            await asyncio.gather(*self.validations.values(), return_exceptions=True)
+            self.validations.clear()
+            self.validation_sources.clear()
+            for key in self.validation_status:
+                self.validation_status[key] = {'status': 'held',
+                    'message': 'Timing changed. Start camera accuracy validation again.',
+                    'revision': self.validation_status[key].get('revision')}
+            for worker in list(self.workers.values()):
+                await self._stop(worker)
+            self.workers.clear()
+        await self.sync()
+        return dict(self.settings)
+
+    def _camera(self, source):
+        camera=self.capture_factory(source)
+        if isinstance(camera, ProcessCamera):
+            camera.snapshot_seconds=self.settings['snapshot_seconds']
+        return camera
+
     async def _stop(self, worker):
         worker.set_status('stopped','Monitoring paused.')
         if worker.task:
@@ -144,7 +170,7 @@ class ProductionMonitor:
             desired = {}
             if self.enabled:
                 used_sources = set(self.validation_sources.values())
-                for farm in await self.accounts.rows('SELECT id FROM farms ORDER BY created_at,id'):
+                for farm in await self.accounts.rows('SELECT id FROM farms WHERE is_demo=0 ORDER BY created_at,id'):
                     database = await self.accounts.get_database(farm['id'])
                     for config in await database.monitoring_configs():
                         key=(farm['id'],config['tank_id'])
@@ -199,15 +225,16 @@ class ProductionMonitor:
             for variable,token in reversed(contexts):
                 variable.reset(token)
 
-    async def _infer(self, frame, session, index, last_log, tank):
+    async def _infer(self, frame, session, index, last_log, tank, snapshot_seconds=None, source_name='production_camera'):
         if not self.engine_ready():
             raise ConnectionError('Combined counting is unavailable. Ask Admin to check calibration.')
         # FIFO lock and newest-frame capture prevent one tank from building a GPU backlog.
         async with self.inference_lock:
             self.inference_started=time.monotonic()
             try:
-                return await self.processor(frame,session,index,last_log,'production_camera',tank=tank,
-                                            run_inference=True,cached_result=None,snapshot=True)
+                return await self.processor(frame,session,index,last_log,source_name,tank=tank,
+                                            run_inference=True,cached_result=None,snapshot=True,
+                                            snapshot_seconds=snapshot_seconds or self.settings['snapshot_seconds'])
             finally:
                 self.inference_started=None
 
@@ -215,7 +242,12 @@ class ProductionMonitor:
         config=worker.config; tank_id=config['tank_id']
         database=await self.accounts.get_database(worker.farm)
         profile=json.loads(config['validation'])
-        window=self.window_factory(profile['error_band'])
+        window=(self.window_factory(profile['error_band'],
+            window_seconds=self.settings['median_window_seconds'],
+            minimum_samples=minimum_samples(self.settings),
+            required_windows=self.settings['consistent_windows'],
+            zero_windows=self.settings['zero_windows']) if self.window_factory is CensusWindow
+            else self.window_factory(profile['error_band']))
         baseline=config['accepted_count'] if config['accepted_revision']==config['revision'] else profile['known_count']
         since=config['accepted_at'] or config['updated_at']
         session='production_'+uuid.uuid4().hex
@@ -223,7 +255,7 @@ class ProductionMonitor:
         coverage_at=time.monotonic()
         async with self._context(worker.farm,database):
             while True:
-                camera=self.capture_factory(config['live_source'])
+                camera=self._camera(config['live_source'])
                 try:
                     worker.set_status('starting' if retry==1 else 'reconnecting','Opening live camera.' if retry==1 else 'Camera unavailable. Reconnecting automatically.')
                     await camera.open()
@@ -262,7 +294,7 @@ class ProductionMonitor:
                         worker.status='running'; worker.message='Monitoring. Automatic census active.' if valid else 'Counting unreliable. Inventory updates are held.'
                         telemetry.update(production=True,source_kind='camera',saved_population=tank['current_count'],
                             count_reliable=valid,census_population=baseline,error_band=profile['error_band'],
-                            message=worker.message,snapshot_interval_seconds=CAMERA_SNAPSHOT_SECONDS)
+                            message=worker.message,snapshot_interval_seconds=self.settings['snapshot_seconds'])
                         worker.telemetry=telemetry; worker.publish(telemetry)
                         await asyncio.sleep(.1)
                 except asyncio.CancelledError:
@@ -314,7 +346,7 @@ class ProductionMonitor:
         self.validations[key]=asyncio.create_task(self._validate_job(farm,database,config,known_count))
 
     async def _validate_job(self,farm,database,config,known):
-        key=(farm,config['tank_id']); camera=self.capture_factory(config['live_source'])
+        key=(farm,config['tank_id']); camera=self._camera(config['live_source'])
         samples=[]; deadline=time.monotonic()+180; last_digest=None; frozen_since=time.monotonic()
         try:
             async with self._context(farm,database):

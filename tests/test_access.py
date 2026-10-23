@@ -287,3 +287,54 @@ class AccessTests(unittest.TestCase):
         response=self.request(self.admin,'PUT','/api/admin/accounts/'+self.alice['user']['id'],json={'active':False})
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(self.request(self.alice,'GET','/api/reports').status_code,401)
+
+    def test_demo_settings_reconciliation_and_reset_are_isolated(self):
+        import time
+        import numpy as np
+        timing=self.request(self.admin,'GET','/api/admin/monitoring-settings').json()['settings']
+        self.assertEqual(timing['snapshot_seconds'],5)
+        changed={**timing,'median_window_seconds':30,'consistent_windows':2}
+        self.assertEqual(self.request(self.admin,'PUT','/api/admin/monitoring-settings',json=changed).status_code,200)
+        self.assertEqual(self.request(self.alice,'GET','/api/admin/monitoring-settings').status_code,403)
+        self.assertEqual(self.request(self.admin,'PUT','/api/admin/monitoring-settings',json={**changed,'snapshot_seconds':0}).status_code,400)
+        farm=self.request(self.admin,'POST','/api/admin/demo/initialize').json()
+        self.assertEqual(farm['is_demo'],1)
+        media=accounts.media_directory(farm['id'])
+        before=media/'before.mp4'; after=media/'after.mp4'
+        before.write_bytes(b'clip'); after.write_bytes(b'clip')
+        setup={'tank_name':'Defense aquarium','starting_count':10,'before_source':str(before),
+               'after_source':str(after),'whole_view':True}
+        self.assertEqual(self.request(self.admin,'POST','/api/admin/demo/setup',json=setup).status_code,200)
+        self.assertEqual(self.request(self.alice,'GET','/api/reports',headers={'X-Farm-ID':farm['id']}).status_code,404)
+        self.assertEqual(self.request(self.admin,'GET','/api/admin/dashboard').json()['summary']['total_farms'],3)
+        rng=np.random.default_rng(5)
+        frames=[rng.integers(0,256,(96,96,3),dtype=np.uint8) for _ in range(5)]
+        calls=[]
+        async def infer(*args,**kwargs):
+            calls.append(1)
+            return {'live_count':10 if len(calls)<=5 else 8},0,None
+        def wait_for(phase):
+            for _ in range(50):
+                status=self.request(self.admin,'GET','/api/admin/demo/status').json()
+                if status['phase']==phase or status['phase']=='held': return status
+                time.sleep(.05)
+            self.fail('Demo phase did not finish.')
+        with patch('demo.clip_frames',return_value=frames),patch.object(app.app.state.production,'_infer',side_effect=infer),patch.dict(app.app.state.production.settings,{'demo_reconcile_seconds':0}):
+            self.assertEqual(self.request(self.admin,'POST','/api/admin/demo/phase',json={'phase':'before'}).status_code,200)
+            self.assertEqual(wait_for('before_ready')['phase'],'before_ready')
+            self.assertEqual(self.request(self.admin,'POST','/api/admin/demo/phase',json={'phase':'after'}).status_code,200)
+            result=wait_for('complete')
+            self.assertEqual(result['phase'],'complete',result['message'])
+        report=self.request(self.admin,'GET','/api/reports',headers={'X-Farm-ID':farm['id']}).json()
+        self.assertEqual(report['total_population'],8)
+        self.assertEqual(report['summary']['estimated_mortality_count'],2)
+        self.assertEqual(report['summary']['confirmed_mortality_count'],0)
+        self.assertTrue(report['simulated'])
+        csv=self.request(self.admin,'GET','/api/reports/export/csv',headers={'X-Farm-ID':farm['id']})
+        self.assertIn('SIMULATED DEFENSE DEMO',csv.text)
+        self.assertIn('simulated_demo_',csv.headers['content-disposition'])
+        self.assertEqual(self.request(self.admin,'POST','/api/admin/demo/reset').json()['phase'],'idle')
+        reset=self.request(self.admin,'GET','/api/reports',headers={'X-Farm-ID':farm['id']}).json()
+        self.assertEqual(reset['total_population'],10)
+        self.assertTrue(before.exists() and after.exists())
+        self.assertEqual(self.request(self.alice,'GET','/api/reports').json()['total_population'],1000)

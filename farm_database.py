@@ -111,6 +111,34 @@ class FarmDatabase(ProductionRecords, Database):
         await self.init_production_records()
         await self._conn.commit()
 
+    async def reset_demo_run(self, tank_id, starting_count):
+        """Clear the dedicated demonstration ledger while retaining its tank and media."""
+        await self._ensure_conn()
+        async with self._lock:
+            try:
+                await self._conn.execute('BEGIN IMMEDIATE')
+                await self._tank(tank_id)
+                for table in ('census_allocations', 'bounding_boxes', 'tank_production_logs',
+                              'census_events', 'camera_expectations', 'accepted_census',
+                              'monitoring_daily', 'monitoring_alerts', 'inventory_movements',
+                              'inventory_baselines', 'mortality_checks', 'feed_transactions',
+                              'feed_items', 'dispersals', 'detection_events', 'sessions',
+                              'evaluation_runs', 'evaluation_benchmarks', 'evaluation_previews'):
+                    await self._conn.execute(f'DELETE FROM {table}')
+                await self._conn.execute('UPDATE tanks SET current_count=? WHERE tank_id=?',
+                                         (starting_count, tank_id))
+                await self._conn.execute('INSERT INTO inventory_baselines VALUES(?,?,0,1)',
+                                         (tank_id, now_text()[:10]))
+                if starting_count:
+                    await self._movement(tank_id, 'stocking', starting_count,
+                                         uuid.uuid4().hex, 'Simulated demo opening stock', now_text())
+                await self._conn.execute('UPDATE monitoring_config SET validation=NULL,revision=revision+1,updated_at=? WHERE tank_id=?',
+                                         (now_text(), tank_id))
+                await self._conn.commit()
+            except Exception:
+                await self._conn.rollback()
+                raise
+
     async def _rows(self, sql, args=()):
         cursor = await self._conn.execute(sql, args)
         return [dict(row) for row in await cursor.fetchall()]

@@ -68,6 +68,7 @@ from evaluator import ModelEvaluator, parse_yolo_label_text, compute_academic_me
 from tracker import FingerlngTracker, nms_dedup
 from monitoring import CAMERA_POLL_SECONDS, CAMERA_SNAPSHOT_SECONDS, TankCapture, capture_io
 from production import ProductionMonitor
+from demo import DemoManager
 
 # ---------------------------------------------------------------------------
 # Device Detection (NVIDIA GPU / CUDA)
@@ -182,9 +183,11 @@ async def lifespan(app: FastAPI):
     app.state.production = ProductionMonitor(accounts, AppState, _process_frame_payload,
         lambda: len(state.active_models)==len(DETECTORS))
     await app.state.production.start()
+    app.state.demo = DemoManager(accounts, app.state.production)
     try:
         yield
     finally:
+        await app.state.demo.stop()
         await app.state.production.close()
         _SESSION_STATES.clear()
         await accounts.close()
@@ -774,6 +777,7 @@ async def _process_frame_payload(
     run_inference: bool = True,
     cached_result: Optional[dict] = None,
     snapshot: bool = False,
+    snapshot_seconds: Optional[int] = None,
 ) -> tuple[dict, float, dict]:
     """Process a single BGR frame, log to DB at 1Hz, and produce the contextual telemetry dictionary."""
     state.record_frame_time()
@@ -877,7 +881,7 @@ async def _process_frame_payload(
         "tank_name":             tank.get("name") if tank else None,
         "avg_weight_g":          avg_w,
         "feed_rate_pct":         feed_rate,
-        "snapshot_interval_seconds": CAMERA_SNAPSHOT_SECONDS if snapshot else None,
+        "snapshot_interval_seconds": (snapshot_seconds or CAMERA_SNAPSHOT_SECONDS) if snapshot else None,
         "preview_biomass_kg":    preview_biomass_kg,
         "preview_daily_feed_kg": preview_daily_feed_kg,
         "preview_valuation_php": preview_valuation_php,
@@ -928,6 +932,7 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                 return
             await stream_state("running", "Monitoring active.", source_kind=capture.kind, playback_cycle=0)
             interval = await capture_io(capture.frame_interval) if capture.kind == "video" else CAMERA_POLL_SECONDS
+            snapshot_seconds = app.state.production.settings['snapshot_seconds']
             next_snapshot = 0.0
             while stream_running.is_set():
                 if app.state.production.enabled:
@@ -957,7 +962,7 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                     await asyncio.sleep(max(.005, interval - (time.monotonic() - started)))
                     continue
                 if capture.kind == "camera":
-                    next_snapshot = captured + CAMERA_SNAPSHOT_SECONDS
+                    next_snapshot = captured + snapshot_seconds
                 if not state.active_models:
                     await stream_state("error", "Counting is unavailable. Ask Admin to check the counting service.")
                     break
@@ -966,7 +971,7 @@ async def _handle_websocket_live(ws: WebSocket, initial_tank_id: Optional[str] =
                 telemetry, last_db_log, cached_result = await _process_frame_payload(
                     frame, session_id, frame_idx, last_db_log, "tank_" + capture.kind,
                     tank=current_tank, run_inference=do_inference, cached_result=cached_result,
-                    snapshot=capture.kind == "camera")
+                    snapshot=capture.kind == "camera", snapshot_seconds=snapshot_seconds)
                 telemetry.update(source_kind=capture.kind, playback_cycle=playback_cycle)
                 await ws.send_text(json.dumps(public_value(telemetry)))
                 await asyncio.sleep(max(.005, interval - (time.monotonic() - started)))
@@ -1477,25 +1482,33 @@ async def api_commit_dispersal(body: dict):
 @app.get("/api/reports")
 async def api_reports():
     """Aggregated farm metrics, feed schedule, and dispersal ledger."""
-    return await db.get_production_report()
+    return {**await db.get_production_report(), 'simulated': await _is_demo_farm()}
+
+
+async def _is_demo_farm():
+    return bool(await accounts.rows('SELECT 1 FROM farms WHERE id=? AND is_demo=1',
+                                    (current_farm.get(),)))
 
 
 @app.get("/api/reports/production")
 async def api_production_report():
     """Returns population per tank, mortality %, total feed (KG), inventory PHP value, and dispersal earnings."""
-    return await db.get_production_report()
+    return {**await db.get_production_report(), 'simulated': await _is_demo_farm()}
 
 
 @app.get("/api/reports/export/csv")
 async def export_production_report_csv():
     """Download complete farm production report & dispersal ledger as CSV."""
     import csv, io
+    simulated = await _is_demo_farm()
     rep = await db.get_production_report(include_all_dispersals=True)
     tanks = rep.get("population_per_tank", [])
     dispersals = rep.get("dispersals", [])
 
     buf = io.StringIO()
     writer = csv.writer(buf)
+    if simulated:
+        writer.writerow(['SIMULATED DEFENSE DEMO - RECORDED CLIPS; NOT A LIVE FARM REPORT'])
 
     # Section 1: Executive KPI Summary
     writer.writerow(["=== AQUACULTURE FARM PRODUCTION SUMMARY ==="])
@@ -1543,7 +1556,7 @@ async def export_production_report_csv():
         ])
 
     csv_content = buf.getvalue()
-    filename = f"tilapia_farm_production_report_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"{'simulated_demo_' if simulated else ''}tilapia_farm_production_report_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         io.StringIO(csv_content),
         media_type="text/csv",
@@ -1560,7 +1573,8 @@ async def get_mortality_analytics(
     severity: Optional[str] = None,
 ):
     """Retrieve per-tank daily population, mortality counts, rates, timeline curves, and filtered records."""
-    return await db.get_tank_mortality_analytics(tank_id=tank_id, days=days, severity=severity)
+    return {**await db.get_tank_mortality_analytics(tank_id=tank_id, days=days, severity=severity),
+            'simulated': await _is_demo_farm()}
 
 
 @app.get("/api/analytics/mortality/export/csv")
@@ -1571,6 +1585,7 @@ async def export_mortality_csv(
     severity: Optional[str] = None,
 ):
     """Export filtered per-tank daily mortality data as CSV."""
+    simulated = await _is_demo_farm()
     data = await db.get_tank_mortality_analytics(tank_id=tank_id, days=days, severity=severity)
     records = data.get("records", [])
     import csv, io
@@ -1578,6 +1593,8 @@ async def export_mortality_csv(
     def _generate():
         buf = io.StringIO()
         writer = csv.writer(buf)
+        if simulated:
+            writer.writerow(['SIMULATED DEFENSE DEMO - RECORDED CLIPS; NOT A LIVE FARM REPORT'])
         writer.writerow([
             "date", "tank_id", "tank_name", "population",
             "mortality_count", "mortality_rate_pct", "severity", "status", "dispersal_id",
@@ -1599,7 +1616,7 @@ async def export_mortality_csv(
             ])
         yield buf.getvalue()
 
-    filename = f"tilapia_mortality_report_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"{'simulated_demo_' if simulated else ''}tilapia_mortality_report_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         _generate(),
         media_type="text/csv",
@@ -1695,6 +1712,7 @@ async def export_tank_telemetry_csv(
     limit: int = 5000,
 ):
     """Export multi-granularity (minute/hour/day) tank monitoring records as CSV."""
+    simulated = await _is_demo_farm()
     data = await db.query_tank_monitoring_telemetry(
         tank_id=tank_id,
         resolution=resolution,
@@ -1706,6 +1724,8 @@ async def export_tank_telemetry_csv(
     def _generate():
         buf = io.StringIO()
         writer = csv.writer(buf)
+        if simulated:
+            writer.writerow(['SIMULATED DEFENSE DEMO - RECORDED CLIPS; NOT LIVE TELEMETRY'])
         writer.writerow([
             "time_slot", "display_label", "tank_id", "tank_name",
             "samples", "avg_count", "peak_count", "min_count",
@@ -1729,7 +1749,7 @@ async def export_tank_telemetry_csv(
             ])
         yield buf.getvalue()
 
-    filename = f"tilapia_tank_telemetry_{resolution}_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"{'simulated_demo_' if simulated else ''}tilapia_tank_telemetry_{resolution}_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         _generate(),
         media_type="text/csv",
@@ -1765,12 +1785,15 @@ async def analytics_clear_events():
 @app.get("/api/analytics/export/csv")
 async def analytics_export_csv():
     """Stream all detection events as a downloadable CSV."""
+    simulated = await _is_demo_farm()
     events = await db.query_recent_events(limit=100_000)
     import csv, io
 
     def _generate():
         buf = io.StringIO()
         writer = csv.writer(buf)
+        if simulated:
+            writer.writerow(['SIMULATED DEFENSE DEMO - RECORDED CLIPS; NOT LIVE TELEMETRY'])
         writer.writerow([
             "id", "timestamp", "tank_id", "tank_name", "source", "fingerling_count",
             "count_in", "count_out", "density_pct", "status_level",
@@ -1786,7 +1809,7 @@ async def analytics_export_csv():
             ])
         yield buf.getvalue()
 
-    filename = f"tilapia_telemetry_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"{'simulated_demo_' if simulated else ''}tilapia_telemetry_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         _generate(),
         media_type="text/csv",
@@ -2141,12 +2164,15 @@ async def delete_evaluation_benchmarks():
 @app.get("/api/evaluation-benchmarks/export/csv")
 async def export_evaluation_benchmarks_csv():
     """Export academic evaluation benchmark history as CSV for thesis defense analysis."""
+    simulated = await _is_demo_farm()
     runs = await db.query_evaluation_benchmarks(limit=50_000)
     import csv, io
 
     def _generate():
         buf = io.StringIO()
         writer = csv.writer(buf)
+        if simulated:
+            writer.writerow(['SIMULATED DEFENSE DEMO - RECORDED CLIPS; NOT A LIVE FARM REPORT'])
         writer.writerow([
             "id", "timestamp", "model_name", "confidence_threshold",
             "iou_threshold", "actual_count", "predicted_count", "mae",
@@ -2179,7 +2205,7 @@ async def export_evaluation_benchmarks_csv():
             ])
         yield buf.getvalue()
 
-    filename = f"tilapia_academic_benchmarks_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"{'simulated_demo_' if simulated else ''}tilapia_academic_benchmarks_{datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         _generate(),
         media_type="text/csv",
